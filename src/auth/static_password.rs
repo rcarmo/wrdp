@@ -21,7 +21,15 @@ impl StaticPasswordValidator {
         Self::new_hashes([(username, hash)])
     }
     pub fn new_hashes(values: impl IntoIterator<Item = (String, String)>) -> Result<Self> {
-        let hashes = values.into_iter().collect::<BTreeMap<_, _>>();
+        let mut hashes = BTreeMap::new();
+        for (username, hash) in values {
+            validate_username(&username)?;
+            let account = normalize_local_account_name(&username);
+            anyhow::ensure!(
+                hashes.insert(account.clone(), hash).is_none(),
+                "duplicate static credential for local account {account}"
+            );
+        }
         anyhow::ensure!(
             !hashes.is_empty(),
             "at least one static credential is required"
@@ -122,6 +130,39 @@ mod tests {
             Poll::Pending
         ));
         assert_eq!(verification.await.unwrap(), CredentialDecision::Accept);
+    }
+
+    #[test]
+    fn rejects_duplicate_normalized_accounts() {
+        let hash = hash_static_password("secret").unwrap();
+        let result = StaticPasswordValidator::new_hashes([
+            ("alice".into(), hash.clone()),
+            ("DOMAIN\\alice".into(), hash),
+        ]);
+        assert!(result.err().unwrap().to_string().contains("duplicate"));
+    }
+
+    #[tokio::test]
+    async fn configured_domain_account_matches_normalized_login() {
+        let validator = StaticPasswordValidator::new_hash(
+            "DOMAIN\\alice".into(),
+            hash_static_password("secret").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            validator
+                .validate(
+                    &Credentials {
+                        username: "alice".into(),
+                        password: "secret".into(),
+                        domain: None,
+                    },
+                    CredentialOrigin::ClientInfo
+                )
+                .await
+                .unwrap(),
+            CredentialDecision::Accept
+        );
     }
 
     #[tokio::test]
