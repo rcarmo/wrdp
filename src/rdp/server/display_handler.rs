@@ -2609,13 +2609,19 @@ impl DisplayChannelHandler {
                             adaptive_fps.update(damage_ratio);
                         }
 
-                        let encoding_decision = latency_governor.should_encode_frame(damage_ratio);
+                        let encoding_decision = if force_first_frame {
+                            EncodingDecision::EncodeNow
+                        } else {
+                            latency_governor.should_encode_frame(damage_ratio)
+                        };
                         match encoding_decision {
                             EncodingDecision::Skip => {
+                                force_first_frame |= !damage_regions.is_empty();
                                 frames_dropped += 1;
                                 continue;
                             }
                             EncodingDecision::WaitForMore => {
+                                force_first_frame |= !damage_regions.is_empty();
                                 continue;
                             }
                             EncodingDecision::EncodeNow
