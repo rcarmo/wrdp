@@ -198,13 +198,13 @@ pub fn sanitize_filename_for_linux(filename: &str) -> String {
             if ext_len < LINUX_MAX_FILENAME_LEN - 1 {
                 let base_max = LINUX_MAX_FILENAME_LEN - ext_len;
                 let base = &sanitized[..dot_pos];
-                let truncated_base: String = base.chars().take(base_max).collect();
+                let truncated_base = &base[..base.floor_char_boundary(base_max.min(base.len()))];
                 sanitized = format!("{}{}", truncated_base, ext);
             } else {
-                sanitized = sanitized.chars().take(LINUX_MAX_FILENAME_LEN).collect();
+                sanitized.truncate(sanitized.floor_char_boundary(LINUX_MAX_FILENAME_LEN));
             }
         } else {
-            sanitized = sanitized.chars().take(LINUX_MAX_FILENAME_LEN).collect();
+            sanitized.truncate(sanitized.floor_char_boundary(LINUX_MAX_FILENAME_LEN));
         }
     }
 
@@ -460,6 +460,22 @@ pub fn sanitize_text_for_linux(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn linux_unicode_names_obey_byte_limit() {
+        for input in [
+            "界".repeat(255),
+            format!("{}.txt", "界".repeat(255)),
+            format!("a.{}", "界".repeat(255)),
+        ] {
+            let name = super::sanitize_filename_for_linux(&input);
+            assert!(name.len() <= 255);
+            assert!(!name.is_empty());
+        }
+        assert!(
+            super::sanitize_filename_for_linux(&format!("{}.txt", "界".repeat(255)))
+                .ends_with(".txt")
+        );
+    }
     use super::*;
 
     #[test]
