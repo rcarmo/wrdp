@@ -10,10 +10,11 @@ use argon2::{
 use ironrdp_server::{
     CredentialDecision, CredentialValidationError, CredentialValidator, Credentials,
 };
-use std::{collections::BTreeMap, net::IpAddr};
+use std::{collections::BTreeMap, net::IpAddr, sync::Arc};
 pub struct StaticPasswordValidator {
     hashes: BTreeMap<String, String>,
     peers: PeerGuard,
+    verification_slots: Arc<tokio::sync::Semaphore>,
 }
 impl StaticPasswordValidator {
     pub fn new_hash(username: String, hash: String) -> Result<Self> {
@@ -44,6 +45,7 @@ impl StaticPasswordValidator {
         Ok(Self {
             hashes,
             peers: PeerGuard::new(),
+            verification_slots: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
     pub fn set_peer_ip(&self, ip: IpAddr) {
@@ -76,8 +78,15 @@ impl CredentialValidator for StaticPasswordValidator {
         let accepted = if let Some(hash) = self.hashes.get(&user).cloned() {
             // Argon2 is deliberately CPU/memory intensive. Keep it off the
             // async executor so connection deadlines and cancellation can run.
+            let permit = Arc::clone(&self.verification_slots)
+                .acquire_owned()
+                .await
+                .map_err(CredentialValidationError::new)?;
             let password = zeroize::Zeroizing::new(c.password.clone());
             tokio::task::spawn_blocking(move || {
+                // Cancellation of the awaiting connection must not release the
+                // slot until this non-cancellable blocking job has finished.
+                let _permit = permit;
                 PasswordHash::new(&hash).ok().is_some_and(|hash| {
                     Argon2::default()
                         .verify_password(password.as_bytes(), &hash)
