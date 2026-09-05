@@ -141,6 +141,41 @@ mod tests {
         assert_eq!(verification.await.unwrap(), CredentialDecision::Accept);
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn occupied_verification_slot_keeps_next_request_pending() {
+        let validator = StaticPasswordValidator::new_hash(
+            "alice".into(),
+            hash_static_password("secret").unwrap(),
+        )
+        .unwrap();
+        let permit = Arc::clone(&validator.verification_slots)
+            .acquire_owned()
+            .await
+            .unwrap();
+        let credentials = Credentials {
+            username: "alice".into(),
+            password: "secret".into(),
+            domain: None,
+        };
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::ZERO,
+                validator.validate_received(&credentials, CredentialOrigin::ClientInfo)
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(validator.verification_slots.available_permits(), 0);
+        drop(permit);
+        assert_eq!(
+            validator
+                .validate_received(&credentials, CredentialOrigin::ClientInfo)
+                .await
+                .unwrap(),
+            CredentialDecision::Accept
+        );
+    }
+
     #[test]
     fn rejects_duplicate_normalized_accounts() {
         let hash = hash_static_password("secret").unwrap();
