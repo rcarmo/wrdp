@@ -2321,15 +2321,16 @@ impl DisplayChannelHandler {
                                 && !hardware_encoding_runtime_disabled
                             {
                                 let hardware_config = self.config.hardware_encoding.clone();
-                                match crate::rdp::channels::graphics::egfx::hardware::HardwareEncoderWorker::start(move || create_hardware_encoder(
-                                    &hardware_config,
-                                    encoded_width as u32,
-                                    encoded_height as u32,
-                                )) {
+                                let hardware_startup = tokio::task::block_in_place(|| {
+                                    crate::rdp::channels::graphics::egfx::hardware::HardwareEncoderWorker::start(move || create_hardware_encoder(
+                                        &hardware_config,
+                                        encoded_width as u32,
+                                        encoded_height as u32,
+                                    ))
+                                });
+                                match hardware_startup {
                                     Ok(hw_encoder) => {
-                                        video_encoder = Some(VideoEncoder::Hardware(
-                                            hw_encoder,
-                                        ));
+                                        video_encoder = Some(VideoEncoder::Hardware(hw_encoder));
                                         info!(
                                             "✅ Hardware encoder initialized for {}×{} (GPU encoding)",
                                             encoded_width, encoded_height
