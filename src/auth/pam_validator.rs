@@ -14,6 +14,8 @@ pub struct PamValidator {
     service: String,
     allowed: Option<String>,
     peers: PeerGuard,
+    #[cfg(feature = "pam-auth")]
+    authentication_slot: std::sync::Arc<tokio::sync::Semaphore>,
 }
 impl PamValidator {
     pub fn new(service: Option<String>) -> Self {
@@ -24,6 +26,8 @@ impl PamValidator {
             service: service.unwrap_or_else(|| "wrdp".into()),
             allowed,
             peers: PeerGuard::new(),
+            #[cfg(feature = "pam-auth")]
+            authentication_slot: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
     pub fn set_peer_ip(&self, ip: IpAddr) {
@@ -96,11 +100,20 @@ impl CredentialValidator for PamValidator {
         }
         #[cfg(feature = "pam-auth")]
         let accepted = {
+            let permit = std::sync::Arc::clone(&self.authentication_slot)
+                .acquire_owned()
+                .await
+                .map_err(CredentialValidationError::new)?;
             let service = self.service.clone();
             let password = c.password.clone();
-            tokio::task::spawn_blocking(move || authenticate(&service, user, password))
-                .await
-                .map_err(|e| CredentialValidationError::new(std::io::Error::other(e.to_string())))?
+            tokio::task::spawn_blocking(move || {
+                // PAM modules may block past caller cancellation. Keep admission
+                // occupied until the transaction actually releases its resources.
+                let _permit = permit;
+                authenticate(&service, user, password)
+            })
+            .await
+            .map_err(|e| CredentialValidationError::new(std::io::Error::other(e.to_string())))?
         };
         #[cfg(not(feature = "pam-auth"))]
         let accepted = {
@@ -119,6 +132,29 @@ impl CredentialValidator for PamValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "pam-auth")]
+    #[tokio::test]
+    async fn cancelled_waiter_does_not_release_active_pam_slot() {
+        let validator = PamValidator::new(None);
+        let permit = std::sync::Arc::clone(&validator.authentication_slot)
+            .acquire_owned()
+            .await
+            .unwrap();
+        let credentials = Credentials {
+            username: "alice".into(),
+            password: "unused".into(),
+            domain: None,
+        };
+        assert!(
+            tokio::time::timeout(std::time::Duration::ZERO, validator.validate(&credentials))
+                .await
+                .is_err()
+        );
+        assert_eq!(validator.authentication_slot.available_permits(), 0);
+        drop(permit);
+        assert_eq!(validator.authentication_slot.available_permits(), 1);
+    }
+
     #[test]
     fn construction_preserves_account_restriction() {
         let v = PamValidator::new_with_allowed_username(None, Some("alice".into()));
