@@ -68,6 +68,16 @@ impl EgfxChannelSender {
         }
     }
 
+    /// Inspect the acknowledgement window before encoding or advancing damage
+    /// history. Submission rechecks the window under the server lock.
+    pub fn is_backpressured(&self) -> anyhow::Result<bool> {
+        let server = self
+            .gfx_server
+            .lock()
+            .map_err(|_| anyhow::anyhow!("EGFX server lock poisoned"))?;
+        Ok(server.should_backpressure())
+    }
+
     /// Flush pending EGFX server messages, such as ResetGraphics,
     /// CreateSurface, and MapSurfaceToOutput, through the DVC adapter.
     pub async fn flush_pending_server_messages(&self) -> SendResult<usize> {
@@ -417,6 +427,9 @@ fn damage_regions_to_avc420(
         .iter()
         .filter_map(|r| {
             // Clamp to display bounds (LTRB format, inclusive)
+            if r.width == 0 || r.height == 0 || display_width == 0 || display_height == 0 {
+                return None;
+            }
             let left = r.x.min(display_width as u32) as u16;
             let top = r.y.min(display_height as u32) as u16;
             // Right and bottom are inclusive, so subtract 1 from the exclusive bounds
@@ -454,6 +467,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preflight_tracks_acknowledgement_window() {
+        use ironrdp_core::encode_vec;
+        use ironrdp_dvc::DvcProcessor as _;
+        use ironrdp_egfx::{
+            pdu::{
+                CapabilitiesAdvertisePdu, CapabilitiesV81Flags, CapabilitySet, FrameAcknowledgePdu,
+                GfxPdu, QueueDepth,
+            },
+            server::{GraphicsPipelineHandler, GraphicsPipelineServer},
+        };
+        struct Handler;
+        impl GraphicsPipelineHandler for Handler {
+            fn capabilities_advertise(&mut self, _: &CapabilitiesAdvertisePdu) {}
+            fn on_ready(&mut self, _: &CapabilitySet) {}
+        }
+        let mut server = GraphicsPipelineServer::new(Box::new(Handler));
+        server.set_max_frames_in_flight(1);
+        let caps = GfxPdu::CapabilitiesAdvertise(CapabilitiesAdvertisePdu::from_typed(&[
+            CapabilitySet::V8_1 {
+                flags: CapabilitiesV81Flags::AVC420_ENABLED,
+            },
+        ]));
+        server.process(0, &encode_vec(&caps).unwrap()).unwrap();
+        let surface = server.create_surface(16, 16).unwrap();
+        let handle = Arc::new(std::sync::Mutex::new(server));
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let sender = EgfxChannelSender::new(
+            Arc::clone(&handle),
+            Arc::new(tokio::sync::RwLock::new(None)),
+            tx,
+        );
+        assert!(!sender.is_backpressured().unwrap());
+        let id = handle
+            .lock()
+            .unwrap()
+            .send_avc420_frame(
+                surface,
+                &[0, 0, 1, 0x67],
+                &[Avc420Region::full_frame(16, 16, 22)],
+                0,
+            )
+            .unwrap();
+        assert!(sender.is_backpressured().unwrap());
+        let ack = GfxPdu::FrameAcknowledge(FrameAcknowledgePdu {
+            frame_id: id,
+            queue_depth: QueueDepth::Unavailable,
+            total_frames_decoded: 1,
+        });
+        handle
+            .lock()
+            .unwrap()
+            .process(0, &encode_vec(&ack).unwrap())
+            .unwrap();
+        assert!(!sender.is_backpressured().unwrap());
+    }
+
+    #[test]
     fn frame_validation_rejects_empty_or_inconsistent_geometry() {
         assert!(EgfxChannelSender::validate_frame(&[], 16, 16, 16, 16).is_err());
         assert!(EgfxChannelSender::validate_frame(&[1], 0, 16, 16, 16).is_err());
@@ -461,6 +531,19 @@ mod tests {
         assert!(EgfxChannelSender::validate_frame(&[1], 17, 16, 16, 16).is_err());
         assert!(EgfxChannelSender::validate_frame(&[1], 16, 31, 16, 16).is_err());
         assert!(EgfxChannelSender::validate_frame(&[1], 16, 16, 16, 16).is_ok());
+    }
+
+    #[test]
+    fn empty_damage_does_not_become_a_pixel_at_the_origin() {
+        for (width, height) in [(0, 10), (10, 0), (0, 0)] {
+            let region = DamageRegion {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            };
+            assert!(damage_regions_to_avc420(&[region], 1920, 1080).is_empty());
+        }
     }
 
     #[test]

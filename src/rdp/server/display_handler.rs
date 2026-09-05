@@ -543,6 +543,15 @@ fn hardware_runtime_fallback_reason(
 }
 
 impl VideoEncoder {
+    fn force_keyframe(&mut self) {
+        match self {
+            Self::Avc420(encoder) => encoder.force_keyframe(),
+            Self::Avc444(encoder) => encoder.force_keyframe(),
+            #[cfg(feature = "vaapi")]
+            Self::Hardware(wrapper) => wrapper.0.force_keyframe(),
+        }
+    }
+
     /// Encode a BGRA frame to H.264
     ///
     /// Returns the encoded frame data, or None if the encoder skipped the frame.
@@ -2542,6 +2551,19 @@ impl DisplayChannelHandler {
                             continue;
                         }
 
+                        match sender.is_backpressured() {
+                            Ok(false) => {}
+                            Ok(true) => {
+                                frames_dropped += 1;
+                                continue;
+                            }
+                            Err(error) => {
+                                warn!("Cannot inspect EGFX submission window: {error}");
+                                frames_dropped += 1;
+                                continue;
+                            }
+                        }
+
                         // === DAMAGE DETECTION (Config-controlled) ===
                         // Detect which regions changed since the last frame
                         // Skip encoding entirely if nothing changed (huge bandwidth savings)
@@ -2553,8 +2575,8 @@ impl DisplayChannelHandler {
                         let force_full_frame = periodic_idr_due || force_first_frame;
 
                         if force_first_frame {
-                            info!("📺 Forcing first frame after init (IDR will be sent)");
-                            force_first_frame = false;
+                            info!("📺 Forcing first/recovery frame (IDR will be sent)");
+                            encoder.force_keyframe();
                         }
 
                         let mut damage_regions = if force_full_frame {
@@ -2747,6 +2769,7 @@ impl DisplayChannelHandler {
 
                                 match send_result {
                                     Ok(frame_id) => {
+                                        force_first_frame = false;
                                         egfx_frames_sent += 1;
                                         if egfx_frames_sent == 1 {
                                             info!(
@@ -2769,37 +2792,11 @@ impl DisplayChannelHandler {
                                         continue; // Frame sent via EGFX, skip RemoteFX path
                                     }
                                     Err(e) => {
-                                        if encoder.is_hardware() {
-                                            warn!(
-                                                "EGFX send failed after hardware encode: {}; disabling hardware encoding for this session and falling back to OpenH264 AVC420",
-                                                e
-                                            );
-                                            #[cfg(feature = "vaapi")]
-                                            {
-                                                hardware_encoding_runtime_disabled = true;
-                                            }
-                                            if let Some(config) = h264_encoder_config.clone() {
-                                                match Avc420Encoder::new(config) {
-                                                    Ok(sw_encoder) => {
-                                                        *encoder = VideoEncoder::Avc420(sw_encoder);
-                                                        force_first_frame = true;
-                                                    }
-                                                    Err(err) => {
-                                                        error!(
-                                                            "Failed to create OpenH264 fallback encoder after EGFX send failure: {:?}",
-                                                            err
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            // CRITICAL: Once EGFX is active, NEVER fall back to RemoteFX!
-                                            // Mixing codecs causes display conflicts - EGFX surface invisible
-                                            trace!(
-                                                "EGFX send failed: {} - dropping frame (no RemoteFX fallback)",
-                                                e
-                                            );
-                                        }
+                                        // A send failure after successful encoding is not a
+                                        // hardware failure. The unsent reference requires an
+                                        // IDR and full-surface repaint on the next submission.
+                                        warn!("EGFX send failed; retaining encoder: {e}");
+                                        force_first_frame = true;
                                         frames_dropped += 1;
                                         continue; // Drop frame, don't fall through to RemoteFX
                                     }
