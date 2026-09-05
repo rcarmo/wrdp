@@ -67,15 +67,22 @@ impl CredentialValidator for StaticPasswordValidator {
             return Ok(CredentialDecision::Reject);
         }
         let user = normalize_local_account_name(&c.username);
-        let accepted = self
-            .hashes
-            .get(&user)
-            .and_then(|h| PasswordHash::new(h).ok())
-            .is_some_and(|h| {
-                Argon2::default()
-                    .verify_password(c.password.as_bytes(), &h)
-                    .is_ok()
-            });
+        let accepted = if let Some(hash) = self.hashes.get(&user).cloned() {
+            // Argon2 is deliberately CPU/memory intensive. Keep it off the
+            // async executor so connection deadlines and cancellation can run.
+            let password = zeroize::Zeroizing::new(c.password.clone());
+            tokio::task::spawn_blocking(move || {
+                PasswordHash::new(&hash).ok().is_some_and(|hash| {
+                    Argon2::default()
+                        .verify_password(password.as_bytes(), &hash)
+                        .is_ok()
+                })
+            })
+            .await
+            .map_err(CredentialValidationError::new)?
+        } else {
+            false
+        };
         if accepted {
             self.peers.success(ip);
             Ok(CredentialDecision::Accept)
@@ -88,6 +95,35 @@ impl CredentialValidator for StaticPasswordValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "current_thread")]
+    async fn password_verification_yields_to_the_executor() {
+        use std::{
+            future::Future as _,
+            task::{Context, Poll, Waker},
+        };
+
+        let validator = StaticPasswordValidator::new_hash(
+            "alice".into(),
+            hash_static_password("secret").unwrap(),
+        )
+        .unwrap();
+        let credentials = Credentials {
+            username: "alice".into(),
+            password: "secret".into(),
+            domain: None,
+        };
+        let mut verification = validator.validate(&credentials, CredentialOrigin::ClientInfo);
+        // The previous synchronous implementation completed the entire costly
+        // verification in this poll, preventing timers from being serviced.
+        assert!(matches!(
+            verification
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ));
+        assert_eq!(verification.await.unwrap(), CredentialDecision::Accept);
+    }
+
     #[tokio::test]
     async fn verifies_argon2id() {
         let v = StaticPasswordValidator::new_hash(
