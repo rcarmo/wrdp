@@ -8,8 +8,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use ironrdp_server::{
-    CredentialDecision, CredentialOrigin, CredentialValidationError, CredentialValidator,
-    Credentials,
+    CredentialDecision, CredentialValidationError, CredentialValidator, Credentials,
 };
 use std::{collections::BTreeMap, net::IpAddr};
 pub struct StaticPasswordValidator {
@@ -65,7 +64,6 @@ impl CredentialValidator for StaticPasswordValidator {
     async fn validate(
         &self,
         c: &Credentials,
-        _origin: CredentialOrigin,
     ) -> Result<CredentialDecision, CredentialValidationError> {
         if validate_username(&c.username).is_err() {
             return Ok(CredentialDecision::Reject);
@@ -103,6 +101,7 @@ impl CredentialValidator for StaticPasswordValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ironrdp_server::CredentialOrigin;
     #[tokio::test(flavor = "current_thread")]
     async fn password_verification_yields_to_the_executor() {
         use std::{
@@ -120,7 +119,8 @@ mod tests {
             password: "secret".into(),
             domain: None,
         };
-        let mut verification = validator.validate(&credentials, CredentialOrigin::ClientInfo);
+        let mut verification =
+            validator.validate_received(&credentials, CredentialOrigin::ClientInfo);
         // The previous synchronous implementation completed the entire costly
         // verification in this poll, preventing timers from being serviced.
         assert!(matches!(
@@ -151,7 +151,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             validator
-                .validate(
+                .validate_received(
                     &Credentials {
                         username: "alice".into(),
                         password: "secret".into(),
@@ -173,7 +173,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            v.validate(
+            v.validate_received(
                 &Credentials {
                     username: "DOMAIN\\alice".into(),
                     password: "secret".into(),

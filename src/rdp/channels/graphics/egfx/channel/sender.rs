@@ -306,11 +306,8 @@ impl EgfxChannelSender {
                 .channel_id()
                 .ok_or_else(|| anyhow::anyhow!("EGFX channel not ready"))?;
 
-            let frame_id = server
-                .send_avc420_frame(surface_id, h264_data, &regions, timestamp_ms)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("EGFX frame rejected by upstream acknowledgement window")
-                })?;
+            let frame_id =
+                server.try_send_avc420_frame(surface_id, h264_data, &regions, timestamp_ms)?;
 
             let messages = server.drain_output();
             (frame_id, messages, channel_id)
@@ -388,18 +385,14 @@ impl EgfxChannelSender {
                 .ok_or_else(|| anyhow::anyhow!("EGFX channel not ready"))?;
 
             // Pass optional auxiliary stream to IronRDP when available.
-            let frame_id = server
-                .send_avc444_frame(
-                    surface_id,
-                    stream1_data,
-                    &regions,
-                    stream2_data,
-                    stream2_data.map(|_| regions.as_slice()),
-                    timestamp_ms,
-                )
-                .ok_or_else(|| {
-                    anyhow::anyhow!("EGFX frame rejected by upstream acknowledgement window")
-                })?;
+            let frame_id = server.try_send_avc444_frame(
+                surface_id,
+                stream1_data,
+                &regions,
+                stream2_data,
+                stream2_data.map(|_| regions.as_slice()),
+                timestamp_ms,
+            )?;
 
             let messages = server.drain_output();
 
@@ -483,7 +476,11 @@ mod tests {
             fn on_ready(&mut self, _: &CapabilitySet) {}
         }
         let mut server = GraphicsPipelineServer::new(Box::new(Handler));
-        server.set_max_frames_in_flight(1);
+        server.set_max_frames_in_flight(3);
+        assert_eq!(
+            server.clamp_max_frames_in_flight(std::num::NonZeroU32::new(1).unwrap()),
+            1
+        );
         let caps = GfxPdu::CapabilitiesAdvertise(CapabilitiesAdvertisePdu::from_typed(&[
             CapabilitySet::V8_1 {
                 flags: CapabilitiesV81Flags::AVC420_ENABLED,
