@@ -216,8 +216,15 @@ impl SesmanConfig {
     }
 
     pub(super) fn validate(&self) -> Result<()> {
-        if self.session_name.trim().is_empty() {
-            bail!("session_name cannot be empty");
+        if self.session_name.is_empty()
+            || self.session_name == "."
+            || self.session_name == ".."
+            || !self
+                .session_name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            bail!("session_name must be a single safe filename component");
         }
         if self.user.trim().is_empty() {
             bail!("user could not be resolved; set user in wrdp-sesman.ini");
@@ -690,5 +697,52 @@ fn format_ini_scalar(value: &str) -> String {
         format!("\"{}\"", value.replace('"', "\\\""))
     } else {
         value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod path_validation_tests {
+    use super::*;
+
+    #[test]
+    fn session_name_cannot_escape_registry_directory() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../other",
+            "/tmp/other",
+            "a/b",
+            "a\\b",
+            "a\n",
+        ] {
+            let config = SesmanConfig {
+                session_name: name.into(),
+                ..SesmanConfig::default()
+            };
+            assert!(
+                config.validate().is_err(),
+                "accepted unsafe session name {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_session_names_remain_supported() {
+        for name in ["wrdp", "session-1", "user.desktop_2"] {
+            let config = SesmanConfig {
+                session_name: name.into(),
+                ..SesmanConfig::default()
+            };
+            assert_eq!(
+                config.state_path().parent(),
+                Some(config.state_dir.as_path())
+            );
+            // Default account may be unresolved in an isolated build; the name
+            // check must not be the reason validation fails.
+            if let Err(error) = config.validate() {
+                assert!(!error.to_string().contains("session_name"));
+            }
+        }
     }
 }
