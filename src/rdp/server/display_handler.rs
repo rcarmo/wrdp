@@ -105,7 +105,7 @@ use crate::{
 };
 
 #[cfg(feature = "vaapi")]
-use crate::rdp::channels::graphics::egfx::{HardwareEncoder, create_hardware_encoder};
+use crate::rdp::channels::graphics::egfx::create_hardware_encoder;
 
 /// Client-initiated resize request
 ///
@@ -489,21 +489,8 @@ enum VideoEncoder {
     Avc444(Avc444Encoder),
     /// GPU-accelerated H.264 via VA-API (AVC420 only)
     #[cfg(feature = "vaapi")]
-    Hardware(SendHardwareEncoder),
+    Hardware(crate::rdp::channels::graphics::egfx::hardware::HardwareEncoderWorker),
 }
-
-/// Wrapper to make `Box<dyn HardwareEncoder>` `Send` for use in async tasks.
-///
-/// # Safety
-/// The VA-API encoder uses `Rc<Display>` internally (not `Send`), but the encoder
-/// is always created and used from the same async task — never shared across threads.
-/// This wrapper asserts `Send` to satisfy the tokio requirement without actual
-/// cross-thread access.
-#[cfg(feature = "vaapi")]
-struct SendHardwareEncoder(Box<dyn HardwareEncoder>);
-
-#[cfg(feature = "vaapi")]
-unsafe impl Send for SendHardwareEncoder {}
 
 /// Result of encoding a frame - varies by codec
 enum EncodedVideoFrame {
@@ -549,7 +536,7 @@ impl VideoEncoder {
             Self::Avc420(encoder) => encoder.force_keyframe(),
             Self::Avc444(encoder) => encoder.force_keyframe(),
             #[cfg(feature = "vaapi")]
-            Self::Hardware(wrapper) => wrapper.0.force_keyframe(),
+            Self::Hardware(wrapper) => wrapper.force_keyframe(),
         }
     }
 
@@ -577,7 +564,6 @@ impl VideoEncoder {
                 }),
             #[cfg(feature = "vaapi")]
             VideoEncoder::Hardware(wrapper) => wrapper
-                .0
                 .encode_bgra(bgra_data, width, height, timestamp_ms)
                 .map(|opt| opt.map(|frame| EncodedVideoFrame::Single(frame.data)))
                 .map_err(|e| {
@@ -594,7 +580,7 @@ impl VideoEncoder {
             VideoEncoder::Avc420(_) => "AVC420",
             VideoEncoder::Avc444(_) => "AVC444",
             #[cfg(feature = "vaapi")]
-            VideoEncoder::Hardware(wrapper) => match wrapper.0.backend_name() {
+            VideoEncoder::Hardware(wrapper) => match wrapper.backend_name() {
                 "vaapi" => "VA-API H.264",
                 other => {
                     let _ = other;
@@ -2334,14 +2320,15 @@ impl DisplayChannelHandler {
                             if self.config.hardware_encoding.enabled
                                 && !hardware_encoding_runtime_disabled
                             {
-                                match create_hardware_encoder(
-                                    &self.config.hardware_encoding,
+                                let hardware_config = self.config.hardware_encoding.clone();
+                                match crate::rdp::channels::graphics::egfx::hardware::HardwareEncoderWorker::start(move || create_hardware_encoder(
+                                    &hardware_config,
                                     encoded_width as u32,
                                     encoded_height as u32,
-                                ) {
+                                )) {
                                     Ok(hw_encoder) => {
                                         video_encoder = Some(VideoEncoder::Hardware(
-                                            SendHardwareEncoder(hw_encoder),
+                                            hw_encoder,
                                         ));
                                         info!(
                                             "✅ Hardware encoder initialized for {}×{} (GPU encoding)",

@@ -4,6 +4,10 @@ mod error;
 mod factory;
 mod stats;
 #[cfg(feature = "vaapi")]
+mod worker;
+#[cfg(feature = "vaapi")]
+pub use worker::HardwareEncoderWorker;
+#[cfg(feature = "vaapi")]
 pub mod vaapi;
 #[cfg(feature = "vaapi")]
 pub use error::VaapiError;
