@@ -182,6 +182,28 @@ mod tests {
     }
 
     #[test]
+    fn worker_startup_panic_is_reported_without_hanging() {
+        let result = HardwareEncoderWorker::start(|| panic!("simulated driver startup panic"));
+        assert!(matches!(result, Err(HardwareEncoderError::InitFailed(_))));
+    }
+
+    #[test]
+    fn keyframe_requests_are_coalesced_without_queueing() {
+        let (commands, _requests) = mpsc::sync_channel(1);
+        let mut worker = HardwareEncoderWorker {
+            commands,
+            backend: "test",
+            force_keyframe: false,
+        };
+        // No worker consumes commands. These calls would deadlock if they
+        // attempted to send a message into the bounded queue.
+        for _ in 0..100 {
+            worker.force_keyframe();
+        }
+        assert!(worker.force_keyframe);
+    }
+
+    #[test]
     fn startup_failure_is_returned() {
         assert!(
             HardwareEncoderWorker::start(|| Err(HardwareEncoderError::InitFailed("test".into())))
