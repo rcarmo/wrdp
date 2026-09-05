@@ -290,6 +290,23 @@ struct IncomingFile {
 }
 
 impl IncomingFile {
+    fn append_data(&mut self, data: &[u8]) -> Result<()> {
+        let next_size = self
+            .received_size
+            .checked_add(data.len() as u64)
+            .ok_or_else(|| ClipboardError::FileIoError("clipboard size overflow".into()))?;
+        if self.total_size.is_some_and(|size| next_size > size) {
+            return Err(ClipboardError::FileIoError(
+                "clipboard response exceeds advertised file size".into(),
+            ));
+        }
+        self.file_handle
+            .write_all(data)
+            .map_err(|error| ClipboardError::FileIoError(format!("File write failed: {error}")))?;
+        self.received_size = next_size;
+        Ok(())
+    }
+
     fn apply_size_response(&mut self, data: &[u8]) -> Result<u64> {
         let bytes: [u8; 8] = data.try_into().map_err(|_| {
             ClipboardError::FileIoError(format!(
@@ -2247,11 +2264,7 @@ impl ClipboardOrchestrator {
                 return Ok(());
             }
         } else {
-            file.file_handle.write_all(&data).map_err(|e| {
-                error!("Failed to write {} clipboard bytes: {e}", data.len());
-                ClipboardError::FileIoError(format!("File write failed: {e}"))
-            })?;
-            file.received_size += data.len() as u64;
+            file.append_data(&data)?;
         }
 
         let total_size = file.total_size.unwrap_or(file.received_size);
@@ -2547,6 +2560,32 @@ mod tests {
         assert_eq!(file.apply_size_response(&0u64.to_le_bytes()).unwrap(), 0);
         assert_eq!(file.total_size, Some(0));
         assert!(!file.awaiting_size);
+    }
+
+    #[test]
+    fn oversized_clipboard_data_is_rejected_before_writing() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("incoming.tmp");
+        let mut file = IncomingFile {
+            final_path: temp.path().join("final.txt"),
+            total_size: Some(3),
+            awaiting_size: false,
+            received_size: 0,
+            temp_path: path.clone(),
+            file_handle: OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap(),
+            file_index: 0,
+            clip_data_id: 1,
+        };
+        file.append_data(&[1, 2]).unwrap();
+        assert!(file.append_data(&[3, 4]).is_err());
+        assert_eq!(file.received_size, 2);
+        assert_eq!(std::fs::read(&path).unwrap(), vec![1, 2]);
+        file.append_data(&[3]).unwrap();
+        assert_eq!(file.received_size, 3);
     }
 
     #[test]
