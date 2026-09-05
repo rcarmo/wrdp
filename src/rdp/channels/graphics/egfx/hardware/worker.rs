@@ -9,9 +9,9 @@ enum Command {
         width: u32,
         height: u32,
         timestamp_ms: u64,
+        force_keyframe: bool,
         reply: mpsc::SyncSender<HardwareEncoderResult<Option<H264Frame>>>,
     },
-    ForceKeyframe,
 }
 
 /// Sendable command endpoint for a backend created and dropped on its own thread.
@@ -20,6 +20,7 @@ enum Command {
 pub struct HardwareEncoderWorker {
     commands: mpsc::SyncSender<Command>,
     backend: &'static str,
+    force_keyframe: bool,
 }
 
 impl HardwareEncoderWorker {
@@ -49,12 +50,15 @@ impl HardwareEncoderWorker {
                             width,
                             height,
                             timestamp_ms,
+                            force_keyframe,
                             reply,
                         } => {
+                            if force_keyframe {
+                                encoder.force_keyframe();
+                            }
                             let result = encoder.encode_bgra(&data, width, height, timestamp_ms);
                             let _ = reply.send(result);
                         }
-                        Command::ForceKeyframe => encoder.force_keyframe(),
                     }
                 }
             })
@@ -62,7 +66,11 @@ impl HardwareEncoderWorker {
         let backend = startup.recv().map_err(|_| {
             HardwareEncoderError::InitFailed("encoder worker exited during startup".into())
         })??;
-        Ok(Self { commands, backend })
+        Ok(Self {
+            commands,
+            backend,
+            force_keyframe: false,
+        })
     }
 
     pub fn backend_name(&self) -> &'static str {
@@ -70,8 +78,8 @@ impl HardwareEncoderWorker {
     }
 
     pub fn force_keyframe(&mut self) {
-        // If the worker has exited, the next encode returns an explicit error.
-        let _ = self.commands.send(Command::ForceKeyframe);
+        // Coalesce requests locally; never block the async caller on the queue.
+        self.force_keyframe = true;
     }
 
     pub fn encode_bgra(
@@ -88,6 +96,7 @@ impl HardwareEncoderWorker {
                 width,
                 height,
                 timestamp_ms,
+                force_keyframe: std::mem::take(&mut self.force_keyframe),
                 reply,
             })
             .map_err(|_| HardwareEncoderError::EncodeFailed("encoder worker stopped".into()))?;
