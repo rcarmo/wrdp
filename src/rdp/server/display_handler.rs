@@ -536,7 +536,8 @@ fn hardware_runtime_fallback_reason(
     }
 
     match payload_len {
-        None => Some("hardware encoder returned no frame"),
+        // Ok(None) is the encoder's supported skip/delay outcome, not an error.
+        None => None,
         Some(0) => Some("hardware encoder produced empty H.264 payload"),
         Some(_) => None,
     }
@@ -2803,35 +2804,11 @@ impl DisplayChannelHandler {
                                 }
                             }
                             Ok(None) => {
-                                let codec_name = encoder.codec_name();
-                                if let Some(reason) =
-                                    hardware_runtime_fallback_reason(codec_name, None)
-                                {
-                                    warn!(
-                                        "{} from {}; disabling hardware encoding for this session and falling back to OpenH264 AVC420",
-                                        reason, codec_name
-                                    );
-                                    #[cfg(feature = "vaapi")]
-                                    {
-                                        hardware_encoding_runtime_disabled = true;
-                                    }
-                                    if let Some(config) = h264_encoder_config.clone() {
-                                        match Avc420Encoder::new(config) {
-                                            Ok(sw_encoder) => {
-                                                *encoder = VideoEncoder::Avc420(sw_encoder);
-                                                force_first_frame = true;
-                                            }
-                                            Err(e) => {
-                                                error!(
-                                                    "Failed to create OpenH264 fallback encoder after hardware no-output: {:?}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    trace!("H.264 encoder skipped frame");
-                                }
+                                // No output is a supported skip/delay, not hardware
+                                // failure. Damage history has advanced, so ensure the
+                                // next submitted frame covers the skipped capture.
+                                trace!("H.264 encoder skipped frame");
+                                force_first_frame = true;
                                 frames_dropped += 1;
                                 continue;
                             }
@@ -3529,10 +3506,7 @@ mod tests {
 
     #[test]
     fn hardware_runtime_failures_trigger_software_fallback() {
-        assert_eq!(
-            hardware_runtime_fallback_reason("VA-API H.264", None),
-            Some("hardware encoder returned no frame")
-        );
+        assert_eq!(hardware_runtime_fallback_reason("VA-API H.264", None), None);
         assert_eq!(
             hardware_runtime_fallback_reason("VA-API H.264", Some(0)),
             Some("hardware encoder produced empty H.264 payload")
