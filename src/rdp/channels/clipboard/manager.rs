@@ -291,6 +291,15 @@ struct IncomingFile {
 
 impl IncomingFile {
     fn append_data(&mut self, data: &[u8]) -> Result<()> {
+        if data.is_empty()
+            && self
+                .total_size
+                .is_some_and(|size| self.received_size < size)
+        {
+            return Err(ClipboardError::FileIoError(
+                "clipboard file response made no progress".into(),
+            ));
+        }
         let next_size = self
             .received_size
             .checked_add(data.len() as u64)
@@ -2580,6 +2589,8 @@ mod tests {
             file_index: 0,
             clip_data_id: 1,
         };
+        assert!(file.append_data(&[]).is_err());
+        assert_eq!(file.received_size, 0);
         file.append_data(&[1, 2]).unwrap();
         assert!(file.append_data(&[3, 4]).is_err());
         assert_eq!(file.received_size, 2);
