@@ -2518,8 +2518,8 @@ impl ClipboardOrchestrator {
             let timeout = tokio::time::Duration::from_secs(5);
             let mut handles = self.task_handles.lock().await;
 
-            for (i, handle) in handles.drain(..).enumerate() {
-                match tokio::time::timeout(timeout, handle).await {
+            for (i, mut handle) in handles.drain(..).enumerate() {
+                match tokio::time::timeout(timeout, &mut handle).await {
                     Ok(Ok(())) => {
                         debug!("Task {} finished cleanly", i + 1);
                     }
@@ -2528,6 +2528,8 @@ impl ClipboardOrchestrator {
                     }
                     Err(_) => {
                         warn!("Task {} timed out, aborting", i + 1);
+                        handle.abort();
+                        let _ = handle.await;
                     }
                 }
             }
