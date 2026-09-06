@@ -71,3 +71,49 @@ impl PeerGuard {
             .retain(|_, e| e.at.elapsed() < Duration::from_secs(120));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failures_escalate_and_success_resets_only_that_peer() {
+        let guard = PeerGuard::new();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let other = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        for _ in 0..3 {
+            guard.failure(peer);
+            assert!(guard.blocked_for(peer).is_none());
+        }
+        for seconds in [5, 15, 60] {
+            guard.failure(peer);
+            let remaining = guard.blocked_for(peer).unwrap();
+            assert!(remaining <= Duration::from_secs(seconds));
+            assert!(remaining > Duration::from_secs(seconds - 1));
+        }
+        guard.failure(other);
+        guard.success(peer);
+        assert!(guard.blocked_for(peer).is_none());
+        assert!(guard.failures.lock().unwrap().contains_key(&other));
+    }
+
+    #[test]
+    fn expired_lock_and_stale_entries_are_released() {
+        let guard = PeerGuard::new();
+        let peer = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let recent = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        guard.failures.lock().unwrap().insert(
+            peer,
+            Failure {
+                count: 6,
+                at: Instant::now() - Duration::from_secs(121),
+            },
+        );
+        guard.failure(recent);
+        assert!(guard.blocked_for(peer).is_none());
+        guard.prune();
+        let entries = guard.failures.lock().unwrap();
+        assert!(!entries.contains_key(&peer));
+        assert!(entries.contains_key(&recent));
+    }
+}
