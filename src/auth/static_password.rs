@@ -49,10 +49,10 @@ impl StaticPasswordValidator {
         })
     }
     pub fn set_peer_ip(&self, ip: IpAddr) {
-        self.peers.set_peer(ip)
+        self.peers.set_peer(ip);
     }
     pub fn prune_stale_entries(&self) {
-        self.peers.prune()
+        self.peers.prune();
     }
 }
 pub fn hash_static_password(password: &str) -> Result<String> {
@@ -113,10 +113,7 @@ mod tests {
     use ironrdp_server::CredentialOrigin;
     #[tokio::test(flavor = "current_thread")]
     async fn password_verification_yields_to_the_executor() {
-        use std::{
-            future::Future as _,
-            task::{Context, Poll, Waker},
-        };
+        use std::task::{Context, Poll, Waker};
 
         let validator = StaticPasswordValidator::new_hash(
             "alice".into(),

@@ -187,9 +187,10 @@ impl Dispatch<WlRegistry, GlobalListContents> for WaylandState {
             }
             Event::GlobalRemove { name } => {
                 // Handle removed wl_output globals (output unplug)
-                let idx = state.outputs.iter().position(|(_, info)| {
-                    info.lock().map(|i| i.global_name == name).unwrap_or(false)
-                });
+                let idx = state
+                    .outputs
+                    .iter()
+                    .position(|(_, info)| info.lock().is_ok_and(|i| i.global_name == name));
                 if let Some(idx) = idx {
                     let (output, info) = state.outputs.remove(idx);
                     let output_name = info
@@ -264,12 +265,12 @@ impl Dispatch<WlOutput, Arc<Mutex<OutputInfo>>> for WaylandState {
                 } => {
                     use wayland_client::{WEnum, protocol::wl_output::Mode};
                     // Only use current mode
-                    if let WEnum::Value(f) = flags {
-                        if f.contains(Mode::Current) {
-                            info.width = width as u32;
-                            info.height = height as u32;
-                            info.refresh = refresh as u32;
-                        }
+                    if let WEnum::Value(f) = flags
+                        && f.contains(Mode::Current)
+                    {
+                        info.width = width as u32;
+                        info.height = height as u32;
+                        info.refresh = refresh as u32;
                     }
                 }
                 Event::Name { name } => {

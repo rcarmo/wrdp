@@ -116,7 +116,7 @@ impl ClipboardProvider for DataControlClipboardProvider {
         let mime = mime_type.to_string();
         self.read_backend(move |b| {
             b.read_selection(&mime)
-                .map(|v| v.unwrap_or_default())
+                .map(std::option::Option::unwrap_or_default)
                 .map_err(|e| ClipboardError::PortalError(e.to_string()))
         })
         .await

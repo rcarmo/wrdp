@@ -418,6 +418,7 @@ impl Default for LatencyConfig {
 /// - Metadata: Client-side rendering (lowest latency)
 /// - Painted: Composited into video frames (maximum compatibility)
 /// - Hidden: No cursor (touch/pen)
+///
 /// Predictive cursor configuration
 ///
 /// Physics-based cursor prediction to compensate for network latency.

@@ -31,10 +31,10 @@ impl PamValidator {
         }
     }
     pub fn set_peer_ip(&self, ip: IpAddr) {
-        self.peers.set_peer(ip)
+        self.peers.set_peer(ip);
     }
     pub fn prune_stale_entries(&self) {
-        self.peers.prune()
+        self.peers.prune();
     }
 }
 #[cfg(feature = "pam-auth")]

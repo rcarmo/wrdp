@@ -485,8 +485,7 @@ impl std::fmt::Debug for ClipboardOrchestrator {
                 &self
                     .clipboard_provider
                     .try_read()
-                    .map(|g| g.is_some())
-                    .unwrap_or(false),
+                    .is_ok_and(|g| g.is_some()),
             )
             .finish_non_exhaustive()
     }
@@ -933,10 +932,6 @@ impl ClipboardOrchestrator {
     }
 
     /// Handle RDP format list announcement
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "orchestrator handler with shared state refs"
-    )]
     async fn handle_rdp_format_list(
         formats: Vec<ClipboardFormat>,
         _converter: &FormatConverter,
@@ -1055,10 +1050,6 @@ impl ClipboardOrchestrator {
     }
 
     /// Handle RDP data request (Linux → Windows paste)
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "orchestrator handler with shared state refs"
-    )]
     async fn handle_rdp_data_request(
         format_id: u32,
         _converter: &FormatConverter,
@@ -1369,10 +1360,6 @@ impl ClipboardOrchestrator {
     }
 
     /// Handle RDP data response (Windows → Linux paste completion)
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "orchestrator handler with shared state refs"
-    )]
     #[expect(
         clippy::expect_used,
         reason = "provider existence verified by caller before this path"

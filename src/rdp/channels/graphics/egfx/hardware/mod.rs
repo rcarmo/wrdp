@@ -69,7 +69,7 @@ pub enum QualityPreset {
     Quality,
 }
 impl QualityPreset {
-    pub fn from_str(v: &str) -> Option<Self> {
+    pub fn parse(v: &str) -> Option<Self> {
         match v.trim().to_ascii_lowercase().as_str() {
             "speed" | "fast" => Some(Self::Speed),
             "balanced" | "default" | "medium" => Some(Self::Balanced),
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
     #[test]
     fn presets_are_stable() {
-        assert_eq!(QualityPreset::from_str("fast"), Some(QualityPreset::Speed));
+        assert_eq!(QualityPreset::parse("fast"), Some(QualityPreset::Speed));
         assert_eq!(QualityPreset::Quality.gop_size(), 15);
     }
     #[test]

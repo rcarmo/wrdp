@@ -254,13 +254,14 @@ fn doctor() -> Result<DoctorReport> {
                 session.user, session.status.health
             ));
         }
-        if let Some(state) = &session.status.state {
-            if state.active_clients == 0 && state.last_disconnected_at.is_some() {
-                warnings.push(format!(
-                    "session for user {} is idle/disconnected",
-                    session.user
-                ));
-            }
+        if let Some(state) = &session.status.state
+            && state.active_clients == 0
+            && state.last_disconnected_at.is_some()
+        {
+            warnings.push(format!(
+                "session for user {} is idle/disconnected",
+                session.user
+            ));
         }
     }
     if render_nodes.is_empty() {

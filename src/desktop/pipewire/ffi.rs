@@ -75,7 +75,7 @@ pub fn get_bytes_per_pixel(format: VideoFormat) -> usize {
 pub fn calculate_stride(width: u32, format: VideoFormat) -> u32 {
     let bpp = get_bytes_per_pixel(format) as u32;
     // Align to 16 bytes for performance
-    ((width * bpp + 15) / 16) * 16
+    (width * bpp).div_ceil(16) * 16
 }
 
 /// Calculate buffer size for a given format

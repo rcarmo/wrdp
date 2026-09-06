@@ -151,6 +151,10 @@ fn install_health_reporter(
 /// On drop (while armed) it destroys any already-created input context and
 /// capture sessions/streams, signals the Wayland event loop to stop, and joins
 /// it. Because construction runs on a blocking thread, joining here is safe.
+#[expect(
+    clippy::type_complexity,
+    reason = "explicit shared backend ownership contract"
+)]
 struct ConstructionRollback {
     stop: Arc<AtomicBool>,
     event_loop: Option<std::thread::JoinHandle<()>>,
@@ -187,6 +191,10 @@ impl ConstructionRollback {
 
     /// Disarm the guard and return ownership of the event-loop join handle to
     /// the successfully constructed session handle.
+    #[expect(
+        clippy::expect_used,
+        reason = "internal invariant established during construction or by guarded control flow"
+    )]
     fn disarm(&mut self) -> std::thread::JoinHandle<()> {
         self.armed = false;
         self.event_loop
@@ -200,21 +208,18 @@ impl Drop for ConstructionRollback {
         if !self.armed {
             return;
         }
-        if let Some((backend, session_id)) = self.input.take() {
-            if let Ok(mut backend) = backend.lock() {
-                if let Err(error) = backend.destroy_context(&session_id) {
-                    warn!("portal-generic: rollback destroy input context failed: {error}");
-                }
-            }
+        if let Some((backend, session_id)) = self.input.take()
+            && let Ok(mut backend) = backend.lock()
+            && let Err(error) = backend.destroy_context(&session_id)
+        {
+            warn!("portal-generic: rollback destroy input context failed: {error}");
         }
-        if let Some((backend, stream_ids)) = self.capture.take() {
-            if !stream_ids.is_empty() {
-                if let Ok(mut backend) = backend.lock() {
-                    if let Err(error) = backend.destroy_capture_session(&stream_ids) {
-                        warn!("portal-generic: rollback destroy capture session failed: {error}");
-                    }
-                }
-            }
+        if let Some((backend, stream_ids)) = self.capture.take()
+            && !stream_ids.is_empty()
+            && let Ok(mut backend) = backend.lock()
+            && let Err(error) = backend.destroy_capture_session(&stream_ids)
+        {
+            warn!("portal-generic: rollback destroy capture session failed: {error}");
         }
         self.stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.event_loop.take() {
@@ -736,23 +741,23 @@ impl SessionHandle for PortalGenericSessionHandle {
     }
 
     fn set_streams(&self, streams: Vec<StreamInfo>) {
-        if let Some(input) = self.input.as_ref() {
-            if let Ok(mut backend) = input.backend.lock() {
-                backend.set_stream_mappings(
-                    streams
-                        .iter()
-                        .map(|stream| {
-                            crate::desktop::portal::xdg_desktop::types::StreamOutputMapping {
-                                stream_node_id: stream.node_id,
-                                x: stream.position_x,
-                                y: stream.position_y,
-                                width: stream.width,
-                                height: stream.height,
-                            }
-                        })
-                        .collect(),
-                );
-            }
+        if let Some(input) = self.input.as_ref()
+            && let Ok(mut backend) = input.backend.lock()
+        {
+            backend.set_stream_mappings(
+                streams
+                    .iter()
+                    .map(
+                        |stream| crate::desktop::portal::xdg_desktop::types::StreamOutputMapping {
+                            stream_node_id: stream.node_id,
+                            x: stream.position_x,
+                            y: stream.position_y,
+                            width: stream.width,
+                            height: stream.height,
+                        },
+                    )
+                    .collect(),
+            );
         }
         *self
             .streams

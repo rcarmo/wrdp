@@ -841,12 +841,10 @@ impl DisplayChannelHandler {
         static INIT: AtomicBool = AtomicBool::new(false);
 
         if !INIT.swap(true, Ordering::SeqCst) {
-            let enabled = std::env::var("WRDP_ROTATE_180")
-                .map(|value| {
-                    let value = value.trim().to_ascii_lowercase();
-                    matches!(value.as_str(), "1" | "true" | "yes" | "on")
-                })
-                .unwrap_or(false);
+            let enabled = std::env::var("WRDP_ROTATE_180").is_ok_and(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                matches!(value.as_str(), "1" | "true" | "yes" | "on")
+            });
 
             ROTATE.store(enabled, Ordering::SeqCst);
             if enabled {
@@ -862,12 +860,10 @@ impl DisplayChannelHandler {
         static INIT: AtomicBool = AtomicBool::new(false);
 
         if !INIT.swap(true, Ordering::SeqCst) {
-            let enabled = std::env::var("WRDP_FLIP_VERTICAL")
-                .map(|value| {
-                    let value = value.trim().to_ascii_lowercase();
-                    matches!(value.as_str(), "1" | "true" | "yes" | "on")
-                })
-                .unwrap_or(false);
+            let enabled = std::env::var("WRDP_FLIP_VERTICAL").is_ok_and(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                matches!(value.as_str(), "1" | "true" | "yes" | "on")
+            });
 
             FLIP.store(enabled, Ordering::SeqCst);
             if enabled {
@@ -883,7 +879,7 @@ impl DisplayChannelHandler {
         transform_name: &str,
         mut src_xy: impl FnMut(usize, usize, usize, usize) -> (usize, usize),
     ) -> VideoFrame {
-        let bytes_per_pixel = frame.format.bytes_per_pixel() as usize;
+        let bytes_per_pixel = frame.format.bytes_per_pixel();
         let width = frame.width as usize;
         let height = frame.height as usize;
         let src_stride = frame.stride as usize;
@@ -1050,6 +1046,13 @@ impl DisplayChannelHandler {
     #[expect(
         clippy::too_many_arguments,
         reason = "display handler needs pipeline components at construction"
+    )]
+    #[cfg_attr(
+        not(feature = "portal-generic"),
+        expect(
+            dead_code,
+            reason = "retained shared API when the runtime backend feature is disabled"
+        )
     )]
     pub(crate) async fn new_direct(
         initial_width: u16,
@@ -1611,13 +1614,10 @@ impl DisplayChannelHandler {
                         .await
                     {
                         Ok(()) => {
-                            let waiting_for_frame = handler
-                                .resize
-                                .lock()
-                                .map(|mut resize| {
+                            let waiting_for_frame =
+                                handler.resize.lock().is_ok_and(|mut resize| {
                                     resize.mark_command_succeeded(req, std::time::Instant::now())
-                                })
-                                .unwrap_or(false);
+                                });
                             if waiting_for_frame {
                                 debug!(
                                     width = req.width,
@@ -1727,13 +1727,9 @@ impl DisplayChannelHandler {
                             // await points. A later request becomes the next
                             // transaction; it cannot turn this direct frame into
                             // an obsolete Resize publication.
-                            let commit_started = handler
-                                .resize
-                                .lock()
-                                .map(|mut resize| {
-                                    resize.begin_commit(request, std::time::Instant::now())
-                                })
-                                .unwrap_or(false);
+                            let commit_started = handler.resize.lock().is_ok_and(|mut resize| {
+                                resize.begin_commit(request, std::time::Instant::now())
+                            });
                             if !commit_started {
                                 debug!(
                                     width = request.width,
@@ -1793,16 +1789,15 @@ impl DisplayChannelHandler {
                                             width: request.width,
                                             height: request.height,
                                         }));
-                                        if let Ok(mut resize) = handler.resize.lock() {
-                                            if !resize
+                                        if let Ok(mut resize) = handler.resize.lock()
+                                            && !resize
                                                 .mark_applied(request, std::time::Instant::now())
-                                            {
-                                                warn!(
-                                                    width = request.width,
-                                                    height = request.height,
-                                                    "Resize transaction lost its commit state"
-                                                );
-                                            }
+                                        {
+                                            warn!(
+                                                width = request.width,
+                                                height = request.height,
+                                                "Resize transaction lost its commit state"
+                                            );
                                         }
                                     }
                                     Err(error) => {
@@ -2203,8 +2198,7 @@ impl DisplayChannelHandler {
                         .read()
                         .await
                         .as_ref()
-                        .map(|s| !s.is_ready)
-                        .unwrap_or(false);
+                        .is_some_and(|s| !s.is_ready);
 
                     if !caps_pending {
                         // V8 client: no EGFX capability state, no setup needed

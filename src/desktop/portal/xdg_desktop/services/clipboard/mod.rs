@@ -154,29 +154,29 @@ pub(crate) fn find_mime_match<'a>(requested: &str, available: &'a [String]) -> O
     }
 
     // For text types, try stripping or adding charset parameter
-    if requested.starts_with("text/") {
-        if let Some(base) = requested.split(';').next() {
-            // Requested has charset — try base without it
-            if requested.contains(';') {
-                if let Some(found) = available.iter().find(|m| m.as_str() == base) {
+    if requested.starts_with("text/")
+        && let Some(base) = requested.split(';').next()
+    {
+        // Requested has charset — try base without it
+        if requested.contains(';')
+            && let Some(found) = available.iter().find(|m| m.as_str() == base)
+        {
+            return Some(found.as_str());
+        }
+
+        // Requested has no charset — try common charset variants
+        if !requested.contains(';') {
+            for suffix in [";charset=utf-8", ";charset=UTF-8"] {
+                let with_charset = format!("{requested}{suffix}");
+                if let Some(found) = available.iter().find(|m| m.as_str() == with_charset) {
                     return Some(found.as_str());
                 }
             }
+        }
 
-            // Requested has no charset — try common charset variants
-            if !requested.contains(';') {
-                for suffix in [";charset=utf-8", ";charset=UTF-8"] {
-                    let with_charset = format!("{requested}{suffix}");
-                    if let Some(found) = available.iter().find(|m| m.as_str() == with_charset) {
-                        return Some(found.as_str());
-                    }
-                }
-            }
-
-            // Try any available type that shares the same base
-            if let Some(found) = available.iter().find(|m| m.split(';').next() == Some(base)) {
-                return Some(found.as_str());
-            }
+        // Try any available type that shares the same base
+        if let Some(found) = available.iter().find(|m| m.split(';').next() == Some(base)) {
+            return Some(found.as_str());
         }
     }
 

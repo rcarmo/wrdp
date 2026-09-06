@@ -100,10 +100,10 @@ pub(crate) fn process_matches(signature: &ProcessSignature<'_>, purpose: MatchPu
         return false;
     }
 
-    if let Some(expected_boot_id) = signature.boot_id {
-        if read_boot_id().as_deref() != Some(expected_boot_id) {
-            return false;
-        }
+    if let Some(expected_boot_id) = signature.boot_id
+        && read_boot_id().as_deref() != Some(expected_boot_id)
+    {
+        return false;
     }
 
     if let Some(expected_uid) = signature.uid {
@@ -117,10 +117,10 @@ pub(crate) fn process_matches(signature: &ProcessSignature<'_>, purpose: MatchPu
         }
     }
 
-    if let Some(expected_pgid) = signature.pgid {
-        if process_pgid(signature.pid) != Some(expected_pgid) {
-            return false;
-        }
+    if let Some(expected_pgid) = signature.pgid
+        && process_pgid(signature.pid) != Some(expected_pgid)
+    {
+        return false;
     }
 
     if let Some(expected_start_ticks) = signature.start_ticks {

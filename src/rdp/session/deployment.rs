@@ -108,12 +108,11 @@ fn check_linger_enabled() -> bool {
     Command::new("loginctl")
         .args(["show-user", &uid.to_string(), "-p", "Linger"])
         .output()
-        .map(|output| {
+        .is_ok_and(|output| {
             String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .eq("Linger=yes")
         })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

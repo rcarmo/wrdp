@@ -163,7 +163,10 @@ impl PipeWireStream {
 
     /// Get current state
     pub fn state(&self) -> PwStreamState {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Set frame callback
@@ -171,12 +174,15 @@ impl PipeWireStream {
         *self
             .frame_callback
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(callback);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(callback);
     }
 
     /// Stop the stream
     pub async fn stop(&mut self) -> crate::desktop::pipewire::error::Result<()> {
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PwStreamState::Unconnected;
+        *self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = PwStreamState::Unconnected;
         Ok(())
     }
 }

@@ -80,19 +80,18 @@ impl SettingsInterface {
     /// 3. Default (0 = no preference)
     fn detect_color_scheme() -> u32 {
         // Explicit override
-        if let Ok(val) = std::env::var("XDP_GENERIC_COLOR_SCHEME") {
-            if let Ok(n) = val.parse::<u32>() {
-                if n <= 2 {
-                    return n;
-                }
-            }
+        if let Ok(val) = std::env::var("XDP_GENERIC_COLOR_SCHEME")
+            && let Ok(n) = val.parse::<u32>()
+            && n <= 2
+        {
+            return n;
         }
 
         // Detect from GTK_THEME
-        if let Ok(theme) = std::env::var("GTK_THEME") {
-            if theme.to_lowercase().contains("dark") {
-                return 1; // prefer dark
-            }
+        if let Ok(theme) = std::env::var("GTK_THEME")
+            && theme.to_lowercase().contains("dark")
+        {
+            return 1; // prefer dark
         }
 
         0 // no preference
@@ -105,14 +104,14 @@ impl SettingsInterface {
     fn detect_accent_color() -> (f64, f64, f64) {
         if let Ok(val) = std::env::var("XDP_GENERIC_ACCENT_COLOR") {
             let parts: Vec<&str> = val.split(',').collect();
-            if parts.len() == 3 {
-                if let (Ok(r), Ok(g), Ok(b)) = (
+            if parts.len() == 3
+                && let (Ok(r), Ok(g), Ok(b)) = (
                     parts[0].trim().parse::<f64>(),
                     parts[1].trim().parse::<f64>(),
                     parts[2].trim().parse::<f64>(),
-                ) {
-                    return (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
-                }
+                )
+            {
+                return (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
             }
         }
 
@@ -122,12 +121,11 @@ impl SettingsInterface {
 
     /// Detect contrast preference.
     fn detect_contrast() -> u32 {
-        if let Ok(val) = std::env::var("XDP_GENERIC_CONTRAST") {
-            if let Ok(n) = val.parse::<u32>() {
-                if n <= 1 {
-                    return n;
-                }
-            }
+        if let Ok(val) = std::env::var("XDP_GENERIC_CONTRAST")
+            && let Ok(n) = val.parse::<u32>()
+            && n <= 1
+        {
+            return n;
         }
         0 // default contrast
     }
@@ -136,12 +134,11 @@ impl SettingsInterface {
     ///
     /// Returns 0 (normal animations) or 1 (prefer reduced motion).
     fn detect_reduced_motion() -> u32 {
-        if let Ok(val) = std::env::var("XDP_GENERIC_REDUCED_MOTION") {
-            if let Ok(n) = val.parse::<u32>() {
-                if n <= 1 {
-                    return n;
-                }
-            }
+        if let Ok(val) = std::env::var("XDP_GENERIC_REDUCED_MOTION")
+            && let Ok(n) = val.parse::<u32>()
+            && n <= 1
+        {
+            return n;
         }
         0 // normal animations
     }

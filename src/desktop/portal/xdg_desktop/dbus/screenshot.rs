@@ -49,10 +49,6 @@ impl ScreenshotInterface {
     }
 }
 
-#[allow(
-    clippy::used_underscore_binding,
-    reason = "zbus macro expands to use underscore-prefixed D-Bus parameters"
-)]
 #[interface(name = "org.freedesktop.impl.portal.Screenshot")]
 impl ScreenshotInterface {
     /// Capture a screenshot of the screen.
@@ -119,7 +115,7 @@ impl ScreenshotInterface {
         // briefly, then remove the backing file even if the caller forgets it.
         if let Some(path) = uri.strip_prefix("file://").map(PathBuf::from) {
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(10 * 60)).await;
+                tokio::time::sleep(std::time::Duration::from_mins(10)).await;
                 if let Err(e) = std::fs::remove_file(path)
                     && e.kind() != std::io::ErrorKind::NotFound
                 {

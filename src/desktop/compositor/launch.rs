@@ -214,7 +214,6 @@ fn open_log(path: &Path, uid: u32, gid: u32) -> Result<File> {
 
     let open_new = || {
         OpenOptions::new()
-            .write(true)
             .append(true)
             .create_new(true)
             .mode(0o600)
@@ -225,7 +224,6 @@ fn open_log(path: &Path, uid: u32, gid: u32) -> Result<File> {
         Ok(file) => (file, true),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             let file = OpenOptions::new()
-                .write(true)
                 .append(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
                 .open(path)

@@ -23,7 +23,7 @@ pub enum MouseButton {
 
 impl MouseButton {
     /// Convert to Linux button code
-    pub fn to_linux_button(&self) -> u32 {
+    pub fn to_linux_button(self) -> u32 {
         match self {
             MouseButton::Left => 0x110,   // BTN_LEFT
             MouseButton::Right => 0x111,  // BTN_RIGHT

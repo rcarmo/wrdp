@@ -345,6 +345,7 @@ pub struct RawFrame {
 }
 
 /// Screencopy protocol state for wlr-screencopy-unstable-v1.
+#[derive(Default)]
 pub struct ScreencopyState {
     /// The screencopy manager global.
     pub manager: Option<ZwlrScreencopyManagerV1>,
@@ -363,21 +364,6 @@ pub struct ScreencopyState {
     pub shm: Option<WlShm>,
     /// linux-dmabuf global used for GPU-backed screencopy buffers.
     pub linux_dmabuf: Option<ZwpLinuxDmabufV1>,
-}
-
-impl Default for ScreencopyState {
-    fn default() -> Self {
-        Self {
-            manager: None,
-            manager_version: 0,
-            frame_count: 0,
-            captures: HashMap::new(),
-            pipewire: None,
-            frame_tx: None,
-            shm: None,
-            linux_dmabuf: None,
-        }
-    }
 }
 
 impl ScreencopyState {
@@ -633,7 +619,7 @@ impl ScreencopyState {
     /// the next frame (or remove the capture for screenshots).
     pub fn on_frame_ready(&mut self, node_id: u32, qh: &QueueHandle<WaylandState>) {
         self.frame_count += 1;
-        if self.frame_count <= 3 || self.frame_count % 1000 == 0 {
+        if self.frame_count <= 3 || self.frame_count.is_multiple_of(1000) {
             tracing::debug!(
                 node_id,
                 frame_count = self.frame_count,
@@ -744,10 +730,10 @@ impl ScreencopyState {
 
             // For screenshots, send error and remove
             if capture.screenshot_reply.is_some() {
-                if let Some(mut capture) = self.captures.remove(&node_id) {
-                    if let Some(reply) = capture.screenshot_reply.take() {
-                        let _ = reply.send(Err("Screencopy frame capture failed".to_string()));
-                    }
+                if let Some(mut capture) = self.captures.remove(&node_id)
+                    && let Some(reply) = capture.screenshot_reply.take()
+                {
+                    let _ = reply.send(Err("Screencopy frame capture failed".to_string()));
                 }
                 tracing::warn!(node_id, "Screenshot capture failed");
                 return;

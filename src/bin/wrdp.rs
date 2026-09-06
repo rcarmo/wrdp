@@ -65,10 +65,6 @@ pub struct Args {
 }
 
 #[tokio::main]
-#[expect(
-    clippy::expect_used,
-    reason = "top-level entry point: signal handler registration must succeed"
-)]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -143,7 +139,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    wrdp::rdp::server::production::run(config).await
+    Box::pin(wrdp::rdp::server::production::run(config)).await
 }
 
 fn init_logging(

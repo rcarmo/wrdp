@@ -351,7 +351,7 @@ impl EgfxChannelSender {
             display_width,
             display_height,
         )?;
-        if stream2_data.is_some_and(|data| data.is_empty()) {
+        if stream2_data.is_some_and(<[u8]>::is_empty) {
             anyhow::bail!("AVC444 auxiliary stream is empty");
         }
         let state = self.avc444_state().await?;

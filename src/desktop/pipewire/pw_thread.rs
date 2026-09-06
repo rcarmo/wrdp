@@ -64,7 +64,7 @@ pub enum PipeWireThreadCommand {
 /// Stream data managed on PipeWire thread
 ///
 /// Some fields are prepared for future functionality (metrics, stats).
-#[allow(dead_code)]
+#[expect(dead_code)]
 struct ManagedStream {
     /// Stream ID
     id: u32,
@@ -145,7 +145,7 @@ impl PipeWireThreadManager {
                 run_pipewire_main_loop(fd, command_rx, frame_tx, state_event_tx, shutdown_rx);
             })
             .map_err(|e| {
-                PipeWireError::InitializationFailed(format!("Thread spawn failed: {}", e))
+                PipeWireError::InitializationFailed(format!("Thread spawn failed: {e}"))
             })?;
 
         info!("PipeWire thread started successfully");
@@ -317,11 +317,11 @@ impl PipeWireThreadManager {
         }
 
         // Wait for thread to finish (with timeout)
-        if let Some(handle) = self.thread_handle.take() {
-            if handle.join().is_err() {
-                error!("PipeWire thread panicked during shutdown");
-                return Err(PipeWireError::ThreadPanic("Thread panicked".to_string()));
-            }
+        if let Some(handle) = self.thread_handle.take()
+            && handle.join().is_err()
+        {
+            error!("PipeWire thread panicked during shutdown");
+            return Err(PipeWireError::ThreadPanic("Thread panicked".to_string()));
         }
 
         info!("PipeWire thread shut down successfully");
@@ -398,7 +398,7 @@ fn run_pipewire_main_loop(
         loop_iterations += 1;
 
         // Log periodic heartbeat
-        if loop_iterations % 1000 == 0 {
+        if loop_iterations.is_multiple_of(1000) {
             info!(
                 "PipeWire main loop heartbeat: {} iterations, {} streams active",
                 loop_iterations,
@@ -504,7 +504,7 @@ fn run_pipewire_main_loop(
         let loop_ref = main_loop.loop_();
         let events_processed = loop_ref.iterate(Duration::from_millis(0));
 
-        if loop_iterations % 1000 == 0 {
+        if loop_iterations.is_multiple_of(1000) {
             trace!(
                 "loop.iterate() returned {} (events processed this iteration)",
                 events_processed
@@ -590,7 +590,7 @@ fn mmap_fd_buffer(fd: std::os::fd::RawFd, size: usize, offset: usize) -> Result<
             borrowed_fd,
             map_offset as i64,
         )
-        .map_err(|e| PipeWireError::FrameExtractionFailed(format!("mmap failed: {}", e)))?
+        .map_err(|e| PipeWireError::FrameExtractionFailed(format!("mmap failed: {e}")))?
     };
 
     // Copy data from mapped region
@@ -632,7 +632,7 @@ fn create_stream_on_thread(
     frame_tx: std_mpsc::SyncSender<VideoFrame>,
     state_event_tx: std_mpsc::SyncSender<StreamStateEvent>,
 ) -> Result<ManagedStream> {
-    let stream_name = format!("wrdp-pw-{}", stream_id);
+    let stream_name = format!("wrdp-pw-{stream_id}");
     let node_target = node_id.to_string();
 
     // Build stream properties per spec
@@ -659,7 +659,7 @@ fn create_stream_on_thread(
     // outlives all streams (streams.clear() before drop(core) in the main loop).
     let stream: StreamBox<'static> = unsafe {
         let stream_box = StreamBox::new(core, &stream_name, props).map_err(|e| {
-            PipeWireError::StreamCreationFailed(format!("StreamBox::new failed: {}", e))
+            PipeWireError::StreamCreationFailed(format!("StreamBox::new failed: {e}"))
         })?;
         // Transmute lifetime from '_ (tied to core borrow) to 'static.
         // SAFETY: Drop ordering is manually enforced in run_pipewire_main_loop.
@@ -715,7 +715,7 @@ fn create_stream_on_thread(
                 StreamState::Connecting => PwStreamState::Connecting,
                 StreamState::Paused => PwStreamState::Paused,
                 StreamState::Streaming => PwStreamState::Streaming,
-                StreamState::Error(msg) => PwStreamState::Error(msg.to_string()),
+                StreamState::Error(msg) => PwStreamState::Error(msg.clone()),
             };
             let event = StreamStateEvent {
                 stream_id: stream_id_for_callbacks,
@@ -958,7 +958,7 @@ fn create_stream_on_thread(
 
                         // Calculate proper stride with alignment
                         // Proper stride = width * bytes_per_pixel, aligned to 16 bytes
-                        let calculated_stride = ((neg_w * bytes_per_pixel + 15) / 16) * 16;
+                        let calculated_stride = (neg_w * bytes_per_pixel).div_ceil(16) * 16;
 
                         // Verify our calculated stride matches buffer
                         let expected_size = calculated_stride * neg_h;
@@ -1053,7 +1053,7 @@ fn create_stream_on_thread(
             }
         })
         .register()
-        .map_err(|e| PipeWireError::StreamCreationFailed(format!("Listener registration failed: {}", e)))?;
+        .map_err(|e| PipeWireError::StreamCreationFailed(format!("Listener registration failed: {e}")))?;
 
     info!("Stream {} callbacks registered successfully", stream_id);
 
@@ -1092,7 +1092,7 @@ fn create_stream_on_thread(
                 | StreamFlags::RT_PROCESS,
             &mut params,
         )
-        .map_err(|e| PipeWireError::ConnectionFailed(format!("Stream connect failed: {}", e)))?;
+        .map_err(|e| PipeWireError::ConnectionFailed(format!("Stream connect failed: {e}")))?;
 
     info!(
         " Stream {} .connect() succeeded - connected to node {}",
@@ -1216,7 +1216,7 @@ fn build_stream_parameters(config: &StreamConfig) -> Result<Vec<u8>> {
     let serialized = PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(format_obj))
         .map_err(|e| {
             warn!("Failed to serialize format parameters: {:?}", e);
-            PipeWireError::FormatNegotiationFailed(format!("Format serialization failed: {:?}", e))
+            PipeWireError::FormatNegotiationFailed(format!("Format serialization failed: {e:?}"))
         })?;
 
     let bytes = serialized.0.into_inner();

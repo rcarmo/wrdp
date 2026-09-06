@@ -99,10 +99,10 @@ impl RemoteDesktopInterface {
                     "source_type".to_string(),
                     OwnedValue::from(s.source_type.to_bits()),
                 );
-                if let Some(ref mapping_id) = s.mapping_id {
-                    if let Ok(val) = OwnedValue::try_from(Value::from(mapping_id.as_str())) {
-                        props.insert("mapping_id".to_string(), val);
-                    }
+                if let Some(ref mapping_id) = s.mapping_id
+                    && let Ok(val) = OwnedValue::try_from(Value::from(mapping_id.as_str()))
+                {
+                    props.insert("mapping_id".to_string(), val);
                 }
                 (s.node_id, props)
             })
@@ -118,10 +118,6 @@ impl RemoteDesktopInterface {
     }
 }
 
-#[allow(
-    clippy::used_underscore_binding,
-    reason = "zbus macro generates code using underscore-prefixed parameters"
-)]
 #[interface(name = "org.freedesktop.impl.portal.RemoteDesktop")]
 impl RemoteDesktopInterface {
     /// Create a new `RemoteDesktop` session.

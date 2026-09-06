@@ -22,7 +22,7 @@ pub fn create_hardware_encoder(
     }
     #[cfg(feature = "vaapi")]
     {
-        let preset = QualityPreset::from_str(&config.quality_preset).unwrap_or_else(|| {
+        let preset = QualityPreset::parse(&config.quality_preset).unwrap_or_else(|| {
             warn!("invalid hardware quality preset; using balanced");
             QualityPreset::Balanced
         });
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn preset_parser_remains_the_policy_boundary() {
         assert_eq!(
-            QualityPreset::from_str("balanced"),
+            QualityPreset::parse("balanced"),
             Some(QualityPreset::Balanced)
         );
     }

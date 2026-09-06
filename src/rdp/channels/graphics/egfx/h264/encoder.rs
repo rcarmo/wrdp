@@ -101,7 +101,7 @@ pub struct EncoderStats {
 pub(crate) fn load_openh264_api() -> EncoderResult<::openh264::OpenH264API> {
     #[cfg(feature = "h264-source")]
     {
-        return Ok(::openh264::OpenH264API::from_source());
+        Ok(::openh264::OpenH264API::from_source())
     }
     #[cfg(not(feature = "h264-source"))]
     {
@@ -211,6 +211,13 @@ impl Avc420Encoder {
     }
 }
 
+#[cfg_attr(
+    not(feature = "h264"),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 fn parameter_sets(data: &[u8]) -> Vec<u8> {
     annex_b(data)
         .filter(|(_, kind)| matches!(kind, 7 | 8))
@@ -296,6 +303,7 @@ mod tests {
         assert_eq!(align_to_16(17), 32);
         assert_eq!(align_to_16(32), 32);
     }
+    #[cfg(feature = "h264")]
     #[test]
     fn extracts_parameter_sets() {
         let bytes = [0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 2, 0, 0, 1, 0x65, 3];

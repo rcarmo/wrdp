@@ -151,9 +151,11 @@ impl SesmanConfig {
     pub fn for_user(user: &str) -> Result<Self> {
         let uid = uid_for_user(user)?;
         let runtime = PathBuf::from(format!("/run/user/{uid}/wrdp"));
-        let mut config = Self::default();
-        config.user = user.to_string();
-        config.xdg_runtime_dir = runtime.clone();
+        let mut config = Self {
+            user: user.to_string(),
+            ..Self::default()
+        };
+        config.xdg_runtime_dir.clone_from(&runtime);
         // Root-owned lifecycle registry, outside the user-writable runtime tree.
         config.state_dir = PathBuf::from(format!("/run/wrdp/sesman/{uid}"));
         config.log_dir = runtime.join("logs");
@@ -431,7 +433,7 @@ fn parse_sesman_ini(content: &str) -> Result<SesmanConfig> {
             "default_size" => match key.as_str() {
                 "width" => config.default_size.width = parse_ini_value(&value, line_number, &key)?,
                 "height" => {
-                    config.default_size.height = parse_ini_value(&value, line_number, &key)?
+                    config.default_size.height = parse_ini_value(&value, line_number, &key)?;
                 }
                 _ => bail!("unknown default_size key '{key}' at line {line_number}"),
             },
@@ -535,7 +537,7 @@ fn apply_component_key(
         }
         "required" => component.required = parse_ini_value(value, line_number, key)?,
         "startup_delay_ms" => {
-            component.startup_delay_ms = parse_ini_value(value, line_number, key)?
+            component.startup_delay_ms = parse_ini_value(value, line_number, key)?;
         }
         _ => bail!("unknown component key '{key}' at line {line_number}"),
     }
@@ -623,10 +625,12 @@ fn strip_ini_comment(line: &str) -> String {
         match ch {
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' | ';' if !in_single && !in_double => {
-                if idx == 0 || line[..idx].ends_with(char::is_whitespace) {
-                    return line[..idx].to_string();
-                }
+            '#' | ';'
+                if !in_single
+                    && !in_double
+                    && (idx == 0 || line[..idx].ends_with(char::is_whitespace)) =>
+            {
+                return line[..idx].to_string();
             }
             _ => {}
         }

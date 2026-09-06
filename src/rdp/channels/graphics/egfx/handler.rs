@@ -90,7 +90,7 @@ impl GraphicsPipelineHandler for WrdpGraphicsHandler {
             reason = "rdpgfx-channel-closed",
             "graphics fallback selected"
         );
-        self.publish(Some(bitmap_fallback_state(true)))
+        self.publish(Some(bitmap_fallback_state(true)));
     }
     fn max_frames_in_flight(&self) -> u32 {
         self.max_frames

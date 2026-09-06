@@ -203,7 +203,7 @@ impl KeyboardHandler {
 
     /// Update modifier states based on key event
     fn update_modifiers(&mut self, keycode: u32, pressed: bool) {
-        #[allow(clippy::wildcard_imports)]
+        #[expect(clippy::wildcard_imports)]
         use crate::rdp::channels::input::mapper::keycodes::*;
 
         match keycode {
@@ -250,10 +250,8 @@ impl KeyboardHandler {
                     self.modifiers.num_lock = !self.modifiers.num_lock;
                 }
             }
-            KEY_SCROLLLOCK => {
-                if pressed {
-                    self.modifiers.scroll_lock = !self.modifiers.scroll_lock;
-                }
+            KEY_SCROLLLOCK if pressed => {
+                self.modifiers.scroll_lock = !self.modifiers.scroll_lock;
             }
             _ => {}
         }

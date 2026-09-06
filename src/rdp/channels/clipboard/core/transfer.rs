@@ -219,7 +219,7 @@ impl TransferEngine {
 
         let chunks: Vec<Vec<u8>> = data
             .chunks(self.config.chunk_size)
-            .map(|c| c.to_vec())
+            .map(<[u8]>::to_vec)
             .collect();
 
         Ok(chunks)
@@ -254,13 +254,13 @@ impl TransferEngine {
     /// Receive a chunk of data
     pub fn receive_chunk(&mut self, chunk: Vec<u8>) -> ClipboardResult<()> {
         // Check timeout
-        if let Some(started) = self.started_at {
-            if started.elapsed() > Duration::from_millis(self.config.timeout_ms) {
-                if let Some(ref mut progress) = self.progress {
-                    progress.state = TransferState::Failed;
-                }
-                return Err(ClipboardError::TransferTimeout(self.config.timeout_ms));
+        if let Some(started) = self.started_at
+            && started.elapsed() > Duration::from_millis(self.config.timeout_ms)
+        {
+            if let Some(ref mut progress) = self.progress {
+                progress.state = TransferState::Failed;
             }
+            return Err(ClipboardError::TransferTimeout(self.config.timeout_ms));
         }
 
         // Check if we have an active transfer
@@ -321,14 +321,14 @@ impl TransferEngine {
         }
 
         // Verify integrity if hash was provided
-        if self.config.verify_integrity {
-            if let Some(ref expected) = self.expected_hash {
-                let actual = self.compute_hash(&data);
-                if actual != *expected {
-                    return Err(ClipboardError::FormatConversion(
-                        "integrity check failed: hash mismatch".to_string(),
-                    ));
-                }
+        if self.config.verify_integrity
+            && let Some(ref expected) = self.expected_hash
+        {
+            let actual = self.compute_hash(&data);
+            if actual != *expected {
+                return Err(ClipboardError::FormatConversion(
+                    "integrity check failed: hash mismatch".to_string(),
+                ));
             }
         }
 
@@ -358,10 +358,7 @@ impl TransferEngine {
 
     /// Check if a transfer is in progress
     pub fn is_active(&self) -> bool {
-        self.progress
-            .as_ref()
-            .map(|p| p.state.is_active())
-            .unwrap_or(false)
+        self.progress.as_ref().is_some_and(|p| p.state.is_active())
     }
 
     /// Get the configured chunk size

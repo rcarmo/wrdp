@@ -79,6 +79,10 @@ impl PixelFormat {
 }
 
 /// Convert pixel data from one format to another.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 pub fn convert_format(
     src: &[u8],
     dst: &mut [u8],
@@ -136,8 +140,7 @@ pub fn convert_format(
         (PixelFormat::I420, PixelFormat::BGRA) => convert_i420_to_bgra(src, dst, width, height),
 
         _ => Err(PipeWireError::FormatConversionFailed(format!(
-            "Unsupported conversion: {:?} -> {:?}",
-            src_format, dst_format
+            "Unsupported conversion: {src_format:?} -> {dst_format:?}"
         ))),
     }
 }
@@ -238,19 +241,19 @@ fn convert_nv12_to_bgra(src: &[u8], dst: &mut [u8], width: u32, height: u32) -> 
             let v_val = uv_plane[uv_idx + 1] as i32;
 
             // YUV to RGB conversion
-            let c = y_val - 16;
-            let d = u_val - 128;
-            let e = v_val - 128;
+            let luma = y_val - 16;
+            let blue_chroma = u_val - 128;
+            let red_chroma = v_val - 128;
 
-            let r = (298 * c + 409 * e + 128) >> 8;
-            let g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-            let b = (298 * c + 516 * d + 128) >> 8;
+            let red = (298 * luma + 409 * red_chroma + 128) >> 8;
+            let green = (298 * luma - 100 * blue_chroma - 208 * red_chroma + 128) >> 8;
+            let blue = (298 * luma + 516 * blue_chroma + 128) >> 8;
 
             // Clamp and write BGRA
             let dst_idx = ((y * width + x) * 4) as usize;
-            dst[dst_idx] = clamp(b, 0, 255) as u8;
-            dst[dst_idx + 1] = clamp(g, 0, 255) as u8;
-            dst[dst_idx + 2] = clamp(r, 0, 255) as u8;
+            dst[dst_idx] = clamp(blue, 0, 255) as u8;
+            dst[dst_idx + 1] = clamp(green, 0, 255) as u8;
+            dst[dst_idx + 2] = clamp(red, 0, 255) as u8;
             dst[dst_idx + 3] = 255;
         }
     }
@@ -337,19 +340,19 @@ fn convert_i420_to_bgra(src: &[u8], dst: &mut [u8], width: u32, height: u32) -> 
 
 /// YUV to RGB conversion helper
 #[inline]
-fn yuv_to_rgb(y: i32, u: i32, v: i32) -> (u8, u8, u8) {
-    let c = y - 16;
-    let d = u - 128;
-    let e = v - 128;
+fn yuv_to_rgb(luma_value: i32, blue_value: i32, red_value: i32) -> (u8, u8, u8) {
+    let luma = luma_value - 16;
+    let blue_chroma = blue_value - 128;
+    let red_chroma = red_value - 128;
 
-    let r = (298 * c + 409 * e + 128) >> 8;
-    let g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-    let b = (298 * c + 516 * d + 128) >> 8;
+    let red = (298 * luma + 409 * red_chroma + 128) >> 8;
+    let green = (298 * luma - 100 * blue_chroma - 208 * red_chroma + 128) >> 8;
+    let blue = (298 * luma + 516 * blue_chroma + 128) >> 8;
 
     (
-        clamp(r, 0, 255) as u8,
-        clamp(g, 0, 255) as u8,
-        clamp(b, 0, 255) as u8,
+        clamp(red, 0, 255) as u8,
+        clamp(green, 0, 255) as u8,
+        clamp(blue, 0, 255) as u8,
     )
 }
 

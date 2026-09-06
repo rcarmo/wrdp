@@ -479,12 +479,11 @@ impl WaylandConnection {
                             tracing::debug!("Found ext_data_control_manager_v1 (not bound)");
                         }
                     }
-                    "zwlr_data_control_manager_v1" => {
+                    "zwlr_data_control_manager_v1"
                         // Already handled above via globals.bind()
-                        if !protocols.wlr_data_control {
+                        if !protocols.wlr_data_control => {
                             tracing::debug!("Found zwlr_data_control_manager_v1 (not bound)");
                         }
-                    }
                     _ => {}
                 }
             }
@@ -651,7 +650,7 @@ impl WaylandConnection {
                 unsafe_code,
                 reason = "poll() is a standard POSIX syscall with a valid local pollfd struct"
             )]
-            let poll_result = unsafe { libc::poll(&mut pollfd, 1, 100) };
+            let poll_result = unsafe { libc::poll(&raw mut pollfd, 1, 100) };
 
             if poll_result < 0 {
                 let err = std::io::Error::last_os_error();
@@ -679,23 +678,23 @@ impl WaylandConnection {
             // then dispatch them to handlers. prepare_read() + read_events()
             // is required — dispatch_pending() alone only processes events
             // already in the buffer from previous reads.
-            if pollfd.revents & libc::POLLIN != 0 {
-                if let Some(guard) = self.event_queue.prepare_read() {
-                    match guard.read() {
-                        Ok(_) => {}
-                        // WouldBlock can occur if another thread consumed the
-                        // pending data between poll() and read(). This is benign
-                        // — wayland-client's own blocking_read() handles it the
-                        // same way (returns Ok(0) and lets the caller retry).
-                        Err(wayland_client::backend::WaylandError::Io(ref e))
-                            if e.kind() == std::io::ErrorKind::WouldBlock =>
-                        {
-                            tracing::trace!("Wayland read returned WouldBlock, retrying");
-                        }
-                        Err(e) => {
-                            tracing::error!("Wayland read_events error: {}", e);
-                            break;
-                        }
+            if pollfd.revents & libc::POLLIN != 0
+                && let Some(guard) = self.event_queue.prepare_read()
+            {
+                match guard.read() {
+                    Ok(_) => {}
+                    // WouldBlock can occur if another thread consumed the
+                    // pending data between poll() and read(). This is benign
+                    // — wayland-client's own blocking_read() handles it the
+                    // same way (returns Ok(0) and lets the caller retry).
+                    Err(wayland_client::backend::WaylandError::Io(ref e))
+                        if e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        tracing::trace!("Wayland read returned WouldBlock, retrying");
+                    }
+                    Err(e) => {
+                        tracing::error!("Wayland read_events error: {}", e);
+                        break;
                     }
                 }
             }
@@ -881,6 +880,14 @@ impl WaylandConnection {
     /// When `frame_tx` is provided, screencopy frames are sent through this
     /// channel instead of PipeWire. This bypasses PipeWire buffer sharing
     /// which doesn't work across separate PipeWire connections.
+    #[expect(
+        clippy::type_complexity,
+        reason = "shared backend ownership and event-loop return contract are explicit here"
+    )]
+    #[expect(
+        clippy::expect_used,
+        reason = "internal invariant established during construction or by guarded control flow"
+    )]
     pub fn spawn_event_loop_with_frame_channel(
         mut self,
         pipewire: Arc<PipeWireManager>,

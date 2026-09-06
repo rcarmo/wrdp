@@ -446,6 +446,10 @@ pub struct InputChannelHandler {
 }
 
 impl InputChannelHandler {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+    )]
     pub fn new(
         session_handle: Arc<dyn crate::rdp::session::SessionHandle>,
         monitors: Vec<MonitorInfo>,
@@ -523,7 +527,7 @@ impl InputChannelHandler {
                                     event,
                                     &mut cjk_buffer,
                                     cjk_enabled_task,
-                                    &clipboard_provider_task,
+                                    clipboard_provider_task.as_ref(),
                                 ).await.map_err(|error| ("keyboard", error))
                             }
                             InputEvent::Mouse(event) => {
@@ -533,8 +537,8 @@ impl InputChannelHandler {
                                     &coord_clone,
                                     event,
                                     primary_stream_id,
-                                    &pointer_update_tx_task,
-                                    &gfx_handler_state_task,
+                                    pointer_update_tx_task.as_ref(),
+                                    gfx_handler_state_task.as_ref(),
                                     &pointer_shape_sent_task,
                                 ).await.map_err(|error| ("mouse", error))
                             }
@@ -734,7 +738,7 @@ impl InputChannelHandler {
         event: IronKeyboardEvent,
         cjk_buffer: &mut CjkPasteBuffer,
         cjk_paste_enabled: bool,
-        clipboard_provider: &Option<Arc<dyn ClipboardProvider>>,
+        clipboard_provider: Option<&Arc<dyn ClipboardProvider>>,
     ) -> Result<(), InputError> {
         let mut keyboard = keyboard_handler.lock().await;
 
@@ -816,18 +820,12 @@ impl InputChannelHandler {
                     if (0xD800..=0xDBFF).contains(&unicode) {
                         cjk_buffer.pending_high_surrogate = Some(unicode);
                     } else if (0xDC00..=0xDFFF).contains(&unicode) {
-                        if let Some(high) = cjk_buffer.pending_high_surrogate.take() {
-                            if cjk_buffer.push_surrogate_pair(high, unicode).is_some() {
-                                drop(keyboard);
-                                Self::flush_cjk_buffer(
-                                    session_handle,
-                                    cjk_buffer,
-                                    clipboard_provider,
-                                )
+                        if let Some(high) = cjk_buffer.pending_high_surrogate.take()
+                            && cjk_buffer.push_surrogate_pair(high, unicode).is_some()
+                        {
+                            drop(keyboard);
+                            Self::flush_cjk_buffer(session_handle, cjk_buffer, clipboard_provider)
                                 .await;
-                            } else {
-                            }
-                        } else {
                         }
                     } else if let Some(c) = char::from_u32(u32::from(unicode)) {
                         cjk_buffer.push_char(c);
@@ -899,7 +897,7 @@ impl InputChannelHandler {
     async fn flush_cjk_buffer(
         session_handle: &Arc<dyn crate::rdp::session::SessionHandle>,
         cjk_buffer: &mut CjkPasteBuffer,
-        clipboard_provider: &Option<Arc<dyn ClipboardProvider>>,
+        clipboard_provider: Option<&Arc<dyn ClipboardProvider>>,
     ) {
         let Some(text) = cjk_buffer.take_text() else {
             return;
@@ -936,13 +934,13 @@ impl InputChannelHandler {
             tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
             // Restore original clipboard content
-            if let Some(saved) = saved_clipboard {
-                if let Ok(saved_text) = String::from_utf8(saved) {
-                    if let Err(e) = provider.write_text(&saved_text).await {
-                        warn!("CJK paste: clipboard restore failed: {e}");
-                    } else {
-                        debug!("CJK paste: clipboard content restored");
-                    }
+            if let Some(saved) = saved_clipboard
+                && let Ok(saved_text) = String::from_utf8(saved)
+            {
+                if let Err(e) = provider.write_text(&saved_text).await {
+                    warn!("CJK paste: clipboard restore failed: {e}");
+                } else {
+                    debug!("CJK paste: clipboard content restored");
                 }
             }
         }
@@ -988,7 +986,7 @@ impl InputChannelHandler {
     }
 
     async fn needs_android_pointer_updates(
-        gfx_handler_state: &Option<Arc<RwLock<Option<HandlerState>>>>,
+        gfx_handler_state: Option<&Arc<RwLock<Option<HandlerState>>>>,
     ) -> bool {
         let Some(state) = gfx_handler_state else {
             return false;
@@ -1001,8 +999,8 @@ impl InputChannelHandler {
     }
 
     async fn send_android_pointer_shape_once(
-        pointer_update_tx: &Option<Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
-        gfx_handler_state: &Option<Arc<RwLock<Option<HandlerState>>>>,
+        pointer_update_tx: Option<&Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
+        gfx_handler_state: Option<&Arc<RwLock<Option<HandlerState>>>>,
         pointer_shape_sent: &Arc<AtomicBool>,
     ) {
         if !Self::needs_android_pointer_updates(gfx_handler_state).await {
@@ -1030,8 +1028,8 @@ impl InputChannelHandler {
     }
 
     async fn send_android_pointer_position_update(
-        pointer_update_tx: &Option<Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
-        gfx_handler_state: &Option<Arc<RwLock<Option<HandlerState>>>>,
+        pointer_update_tx: Option<&Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
+        gfx_handler_state: Option<&Arc<RwLock<Option<HandlerState>>>>,
         x: u16,
         y: u16,
     ) {
@@ -1051,14 +1049,18 @@ impl InputChannelHandler {
 
     /// Handle mouse event with full error handling and logging
     /// Handle mouse event implementation (static for batching task)
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+    )]
     async fn handle_mouse_event_impl(
         session_handle: &Arc<dyn crate::rdp::session::SessionHandle>,
         mouse_handler: &Arc<Mutex<MouseHandler>>,
         coordinate_transformer: &Arc<Mutex<CoordinateTransformer>>,
         event: IronMouseEvent,
         stream_id: u32,
-        pointer_update_tx: &Option<Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
-        gfx_handler_state: &Option<Arc<RwLock<Option<HandlerState>>>>,
+        pointer_update_tx: Option<&Arc<Mutex<mpsc::Sender<DisplayUpdate>>>>,
+        gfx_handler_state: Option<&Arc<RwLock<Option<HandlerState>>>>,
         pointer_shape_sent: &Arc<AtomicBool>,
     ) -> Result<(), InputError> {
         let mut mouse = mouse_handler.lock().await;
@@ -1252,20 +1254,16 @@ impl InputChannelHandler {
                 if let crate::rdp::channels::input::MouseEvent::Scroll {
                     delta_x, delta_y, ..
                 } = event
+                    && (delta_x != 0 || delta_y != 0)
                 {
-                    if delta_x != 0 || delta_y != 0 {
-                        session_handle
-                            .notify_pointer_axis(
-                                f64::from(delta_x) * 15.0,
-                                f64::from(delta_y) * 15.0,
-                            )
-                            .await
-                            .map_err(portal_err)?;
-                        session_handle
-                            .notify_pointer_axis(0.0, 0.0)
-                            .await
-                            .map_err(portal_err)?;
-                    }
+                    session_handle
+                        .notify_pointer_axis(f64::from(delta_x) * 15.0, f64::from(delta_y) * 15.0)
+                        .await
+                        .map_err(portal_err)?;
+                    session_handle
+                        .notify_pointer_axis(0.0, 0.0)
+                        .await
+                        .map_err(portal_err)?;
                 }
             }
 
@@ -1274,20 +1272,16 @@ impl InputChannelHandler {
                 if let crate::rdp::channels::input::MouseEvent::Scroll {
                     delta_x, delta_y, ..
                 } = event
+                    && (delta_x != 0 || delta_y != 0)
                 {
-                    if delta_x != 0 || delta_y != 0 {
-                        session_handle
-                            .notify_pointer_axis(
-                                f64::from(delta_x) * 15.0,
-                                f64::from(delta_y) * 15.0,
-                            )
-                            .await
-                            .map_err(portal_err)?;
-                        session_handle
-                            .notify_pointer_axis(0.0, 0.0)
-                            .await
-                            .map_err(portal_err)?;
-                    }
+                    session_handle
+                        .notify_pointer_axis(f64::from(delta_x) * 15.0, f64::from(delta_y) * 15.0)
+                        .await
+                        .map_err(portal_err)?;
+                    session_handle
+                        .notify_pointer_axis(0.0, 0.0)
+                        .await
+                        .map_err(portal_err)?;
                 }
             }
         }

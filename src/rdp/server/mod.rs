@@ -46,5 +46,5 @@ pub fn systemd_socket_activation_without_pending_connection() -> bool {
     };
     // SAFETY: `descriptor` points to one initialized pollfd and timeout zero
     // makes this a non-blocking readiness check. poll does not own fd 3.
-    unsafe { libc::poll(&mut descriptor, 1, 0) == 0 }
+    unsafe { libc::poll(&raw mut descriptor, 1, 0) == 0 }
 }

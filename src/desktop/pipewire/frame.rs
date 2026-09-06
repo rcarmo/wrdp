@@ -305,14 +305,14 @@ impl FrameStats {
         self.avg_frame_size = self.bytes_processed as f64 / self.frames_processed as f64;
 
         // Update FPS
-        if let Some(last_time) = self.last_frame_time {
-            if let Ok(elapsed) = frame.capture_time.duration_since(last_time) {
-                let interval_secs = elapsed.as_secs_f64();
-                if interval_secs > 0.0 {
-                    let instant_fps = 1.0 / interval_secs;
-                    // Exponential moving average
-                    self.avg_fps = self.avg_fps * 0.9 + instant_fps * 0.1;
-                }
+        if let Some(last_time) = self.last_frame_time
+            && let Ok(elapsed) = frame.capture_time.duration_since(last_time)
+        {
+            let interval_secs = elapsed.as_secs_f64();
+            if interval_secs > 0.0 {
+                let instant_fps = 1.0 / interval_secs;
+                // Exponential moving average
+                self.avg_fps = self.avg_fps * 0.9 + instant_fps * 0.1;
             }
         }
 

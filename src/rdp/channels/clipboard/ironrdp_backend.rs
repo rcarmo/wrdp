@@ -202,10 +202,7 @@ impl ClipboardEventReceiver {
 
     /// Check whether there are pending events.
     pub fn has_pending(&self) -> bool {
-        self.queue
-            .try_read()
-            .map(|queue| !queue.is_empty())
-            .unwrap_or(false)
+        self.queue.try_read().is_ok_and(|queue| !queue.is_empty())
     }
 }
 

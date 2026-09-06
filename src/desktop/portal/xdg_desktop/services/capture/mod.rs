@@ -112,10 +112,10 @@ impl CapturePreference {
             prefs.allow_fallback = false;
         }
 
-        if let Ok(timeout) = std::env::var("XDP_GENERIC_CAPTURE_TIMEOUT_MS") {
-            if let Ok(ms) = timeout.parse::<u64>() {
-                prefs.handshake_timeout_ms = ms;
-            }
+        if let Ok(timeout) = std::env::var("XDP_GENERIC_CAPTURE_TIMEOUT_MS")
+            && let Ok(ms) = timeout.parse::<u64>()
+        {
+            prefs.handshake_timeout_ms = ms;
         }
 
         prefs

@@ -1148,6 +1148,10 @@ fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, config: &ColorSpaceCon
 
 /// Compute Y plane from BGRA. Dispatches to SIMD where available.
 #[inline]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 fn bgra_to_y_plane(
     bgra: &[u8],
     y_plane: &mut [u8],
@@ -1191,6 +1195,10 @@ fn bgra_to_y_plane(
 }
 
 /// Scalar Y plane computation
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 fn bgra_to_y_plane_scalar(
     bgra: &[u8],
     y_plane: &mut [u8],
@@ -1220,6 +1228,10 @@ fn bgra_to_y_plane_scalar(
 /// AVX2-optimized Y plane: processes 8 pixels per iteration
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 unsafe fn bgra_to_y_plane_avx2(
     bgra: &[u8],
     y_plane: &mut [u8],
@@ -1305,13 +1317,18 @@ unsafe fn bgra_to_y_plane_avx2(
         }
 
         // Handle remaining pixels with scalar
-        for i in simd_end..total_pixels {
+        for (i, output) in y_plane
+            .iter_mut()
+            .enumerate()
+            .take(total_pixels)
+            .skip(simd_end)
+        {
             let base = i * 4;
             let b = bgra[base] as f32;
             let g = bgra[base + 1] as f32;
             let r = bgra[base + 2] as f32;
             let y_val = y_offset + (kr * r + kg * g + kb * b) * scale_div;
-            y_plane[i] = y_val.clamp(y_min as f32, y_max as f32) as u8;
+            *output = y_val.clamp(y_min as f32, y_max as f32) as u8;
         }
     }
 }
@@ -1400,6 +1417,10 @@ unsafe fn bgra_to_y_plane_neon(
 
 /// UV plane with 2x2 chroma subsampling (scalar, since the 2x2 averaging
 /// pattern doesn't vectorize as cleanly and UV is 1/4 the size of Y)
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 fn bgra_to_uv_plane(
     bgra: &[u8],
     uv_plane: &mut [u8],

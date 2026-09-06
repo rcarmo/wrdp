@@ -42,7 +42,7 @@ impl PeerGuard {
             0..=3 => return None,
             4 => Duration::from_secs(5),
             5 => Duration::from_secs(15),
-            _ => Duration::from_secs(60),
+            _ => Duration::from_mins(1),
         };
         lock.checked_sub(e.at.elapsed())
     }
@@ -68,7 +68,7 @@ impl PeerGuard {
         self.failures
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|_, e| e.at.elapsed() < Duration::from_secs(120));
+            .retain(|_, e| e.at.elapsed() < Duration::from_mins(2));
     }
 }
 

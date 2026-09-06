@@ -181,7 +181,7 @@ impl PipeWireManager {
         let mainloop = pipewire::main_loop::MainLoopBox::new(None)
             .map_err(|e| PortalError::PipeWire(format!("Failed to create main loop: {e}")))?;
 
-        let context = pipewire::context::ContextBox::new(&mainloop.loop_(), None)
+        let context = pipewire::context::ContextBox::new(mainloop.loop_(), None)
             .map_err(|e| PortalError::PipeWire(format!("Failed to create context: {e}")))?;
 
         let core = context.connect(None).map_err(|e| {

@@ -7,15 +7,21 @@
 use tracing::{debug, info, trace};
 
 use crate::rdp::channels::graphics::egfx::{
-    color::{
-        convert::{ColorMatrix, bgra_to_yuv444},
-        space::{ColorRange, ColorSpaceConfig},
-        yuv444_packing::{self, pack_dual_views},
-    },
+    color::{convert::ColorMatrix, space::ColorSpaceConfig},
     h264::{
-        encoder::{self, EncoderConfig, EncoderError, EncoderResult},
+        encoder::{EncoderConfig, EncoderError, EncoderResult},
         level::H264Level,
     },
+};
+
+#[cfg(feature = "h264")]
+use crate::rdp::channels::graphics::egfx::{
+    color::{
+        convert::bgra_to_yuv444,
+        space::ColorRange,
+        yuv444_packing::{self, pack_dual_views},
+    },
+    h264::encoder,
 };
 
 /// AVC444 encoded frame (dual H.264 bitstreams)
@@ -110,10 +116,11 @@ pub struct Avc444Stats {
 ///     // Send frame.stream1_data and frame.stream2_data via EGFX
 /// }
 /// ```
-
+#[cfg(any(feature = "h264", test))]
 const MIN_AUX_INTERVAL: u32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(feature = "h264", test))]
 enum AuxStreamPrecheck {
     SendForced,
     SendOmissionDisabled,
@@ -123,6 +130,7 @@ enum AuxStreamPrecheck {
     CompareContentHash,
 }
 
+#[cfg(any(feature = "h264", test))]
 fn precheck_aux_stream_policy(
     force_aux: bool,
     omission_enabled: bool,
@@ -553,7 +561,6 @@ impl Avc444Encoder {
         let main_frame_type_str = if main_is_keyframe { "IDR" } else { "P" };
         // EncodedBitStream borrows the encoder; copy before the second encode.
         let mut stream1_data = main_encoded.to_vec();
-        drop(main_encoded);
 
         // === PHASE 1: AUXILIARY STREAM (CONDITIONALLY ENCODED) ===
         //
@@ -1263,6 +1270,7 @@ mod tests {
         assert!(stats.frames_encoded >= 1, "No frames encoded");
     }
 
+    #[cfg(feature = "h264")]
     #[test]
     fn test_extract_sps_pps() {
         // Test data with SPS (NAL type 7) and PPS (NAL type 8)

@@ -1,5 +1,8 @@
 //! Production RDP listener and per-user connection binding.
 
+#[cfg(feature = "portal-generic")]
+use crate::rdp::session::supervision::{SessionStatusEvent, SessionSupervisor};
+
 use std::{
     fs,
     future::Future,
@@ -59,10 +62,7 @@ use crate::{
             DisplayChannelHandler, EgfxChannelFactory, InputChannelHandler,
             display_handler::ManagedCompositorControl,
         },
-        session::supervision::{
-            OverallStatus, SessionStatus, SessionStatusEvent, SessionStatusSubscriber,
-            SessionSupervisor,
-        },
+        session::supervision::{OverallStatus, SessionStatus, SessionStatusSubscriber},
     },
 };
 
@@ -93,7 +93,7 @@ fn production_channel_policy(config: &Config) -> ProductionChannelPolicy {
 const PRE_AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_ACCEPT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const SUPERVISION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-const PRODUCTION_IDLE_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
+const PRODUCTION_IDLE_CLEANUP_INTERVAL: Duration = Duration::from_mins(1);
 const PRODUCTION_DEFAULT_DESKTOP_SIZE: DesktopSize = DesktopSize {
     width: 1920,
     height: 1080,
@@ -175,6 +175,10 @@ fn selected_connection_timeout(
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "internal invariant established during construction or by guarded control flow"
+)]
 async fn run_with_connection_timeouts<F>(
     connection: F,
     admission_started: Arc<AtomicBool>,
@@ -505,7 +509,7 @@ pub async fn run(config: Config) -> Result<()> {
             Some(Arc::clone(&connection_invalid));
 
         let connection = rdp_server.run_connection(stream);
-        let result = match run_with_connection_timeouts(
+        let result = match Box::pin(run_with_connection_timeouts(
             connection,
             Arc::clone(&admission_started),
             Arc::clone(&admission_started_notify),
@@ -513,7 +517,7 @@ pub async fn run(config: Config) -> Result<()> {
             Arc::clone(&admission_finished_notify),
             Arc::clone(&connection_invalid),
             session_timeout,
-        )
+        ))
         .await
         {
             Ok(result) => result,
@@ -669,7 +673,7 @@ async fn record_production_disconnect(user: String) {
                         Ok(Ok(false)) => {}
                         Ok(Err(e)) => warn!("failed delayed idle user-session cleanup: {e:#}"),
                         Err(e) => {
-                            warn!("delayed idle user-session cleanup task panicked: {e:#}")
+                            warn!("delayed idle user-session cleanup task panicked: {e:#}");
                         }
                     }
                 });
@@ -710,7 +714,7 @@ async fn rollback_ensured_production_session(user: String, reused_existing: bool
                         .await
                         {
                             Ok(Ok(true)) => {
-                                info!("stopped idle reused production session after failed bind")
+                                info!("stopped idle reused production session after failed bind");
                             }
                             Ok(Ok(false)) => {}
                             Ok(Err(error)) => warn!(
@@ -744,6 +748,13 @@ async fn rollback_ensured_production_session(user: String, reused_existing: bool
     }
 }
 
+#[cfg_attr(
+    not(feature = "portal-generic"),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 async fn watch_production_session_health(
     mut subscriber: SessionStatusSubscriber,
     connection_invalid: Arc<Notify>,
@@ -1025,6 +1036,13 @@ struct TargetUserIdentity {
     groups: String,
 }
 
+#[cfg_attr(
+    not(feature = "portal-generic"),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 fn managed_compositor_control(
     socket: PathBuf,
     target_user: &TargetUserIdentity,
@@ -1281,6 +1299,13 @@ async fn resize_production_compositor(
     Ok(())
 }
 
+#[cfg_attr(
+    all(not(feature = "portal-generic"), not(test)),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 fn prime_direct_frame_receiver(
     source: std::sync::mpsc::Receiver<crate::desktop::pipewire::frame::RawFrameData>,
     expected_size: DesktopSize,
@@ -1317,6 +1342,10 @@ fn prime_direct_frame_receiver(
     Ok(receiver)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit protocol and pixel-plane parameters preserve existing call contracts"
+)]
 async fn build_production_portal_generic_connection(
     username: &str,
     wayland_socket: PathBuf,
@@ -1451,7 +1480,7 @@ async fn build_production_portal_generic_connection(
                         };
                         crate::rdp::channels::input::MonitorInfo {
                             id: idx as u32,
-                            name: format!("{} monitor {idx}", username),
+                            name: format!("{username} monitor {idx}"),
                             x: stream.position.0,
                             y: stream.position.1,
                             width: visible_width,
@@ -1614,6 +1643,13 @@ async fn build_production_portal_generic_connection(
     }
 }
 
+#[cfg_attr(
+    not(feature = "portal-generic"),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 fn production_service_registry() -> Arc<crate::services::RuntimeCapabilities> {
     let capabilities = crate::desktop::compositor::CompositorCapabilities::new(
         crate::desktop::compositor::CompositorType::Wlroots {
@@ -1627,6 +1663,13 @@ fn production_service_registry() -> Arc<crate::services::RuntimeCapabilities> {
     ))
 }
 
+#[cfg_attr(
+    all(not(feature = "portal-generic"), not(test)),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 struct ProductionViewOnlyInput;
 
 impl RdpServerInputHandler for ProductionViewOnlyInput {
@@ -1635,6 +1678,13 @@ impl RdpServerInputHandler for ProductionViewOnlyInput {
     fn mouse(&mut self, _event: MouseEvent) {}
 }
 
+#[cfg_attr(
+    not(feature = "portal-generic"),
+    expect(
+        dead_code,
+        reason = "retained shared API when the runtime backend feature is disabled"
+    )
+)]
 struct ProductionBoundInput {
     inner: InputChannelHandler,
     _shutdown_tx: broadcast::Sender<()>,

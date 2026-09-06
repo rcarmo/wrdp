@@ -530,13 +530,13 @@ impl PortalBackend {
     /// Periodically clean up stale sessions.
     async fn periodic_session_cleanup(session_manager: Arc<Mutex<SessionManager>>) {
         use std::time::Duration;
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        let mut interval = tokio::time::interval(Duration::from_mins(1));
 
         loop {
             interval.tick().await;
 
             let mut manager = session_manager.lock().await;
-            let stale = manager.cleanup_stale_sessions(Duration::from_secs(300));
+            let stale = manager.cleanup_stale_sessions(Duration::from_mins(5));
             drop(manager);
 
             if !stale.is_empty() {

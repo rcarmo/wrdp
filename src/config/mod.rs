@@ -87,10 +87,6 @@ use types::{
 const CURRENT_CONFIG_VERSION: u32 = 1;
 
 /// Main configuration structure
-#[expect(
-    clippy::unsafe_derive_deserialize,
-    reason = "unsafe in this module (getuid, set_var) is unrelated to deserialized fields"
-)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Config file format version (for migration support)
@@ -250,8 +246,7 @@ impl Config {
                 self.server
                     .listen_addr
                     .parse::<SocketAddr>()
-                    .map(|addr| addr.port())
-                    .unwrap_or(3389)
+                    .map_or(3389, |addr| addr.port())
             });
             self.server.listen_addr = format!("{listen_addr}:{port}");
         } else if let Some(port) = port
@@ -398,9 +393,9 @@ fn unquote_ini_value(s: &str) -> Option<String> {
     if let Some(inner) = s.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
         return Some(
             inner
-                .replace(r#"\\"#, r#"\"#)
+                .replace(r"\\", r"\")
                 .replace(r#"\""#, "\"")
-                .replace(r#"\n"#, "\n"),
+                .replace(r"\n", "\n"),
         );
     }
     s.strip_prefix('\'')

@@ -328,8 +328,7 @@ fn parse_dib_to_image(dib_data: &[u8]) -> ClipboardResult<DynamicImage> {
         24 => convert_24bit_dib(pixel_data, width, height, top_down)?,
         _ => {
             return Err(ClipboardError::ImageDecode(format!(
-                "Unsupported DIB bit depth: {}",
-                bit_count
+                "Unsupported DIB bit depth: {bit_count}"
             )));
         }
     };
@@ -556,8 +555,7 @@ fn parse_dibv5_to_image(dibv5_data: &[u8]) -> ClipboardResult<DynamicImage> {
             parse_full_dibv5(dibv5_data)
         }
         _ => Err(ClipboardError::ImageDecode(format!(
-            "Invalid DIBV5 header size: {} (expected 40 or 124)",
-            header_size
+            "Invalid DIBV5 header size: {header_size} (expected 40 or 124)"
         ))),
     }
 }
@@ -602,14 +600,13 @@ fn parse_full_dibv5(data: &[u8]) -> ClipboardResult<DynamicImage> {
         ),
         24 => convert_24bit_dib(pixel_data, width, height, top_down),
         _ => Err(ClipboardError::ImageDecode(format!(
-            "Unsupported DIBV5 bit depth: {}",
-            bit_count
+            "Unsupported DIBV5 bit depth: {bit_count}"
         ))),
     }
 }
 
 /// Convert 32-bit DIBV5 pixel data using color masks.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn convert_32bit_dibv5(
     pixel_data: &[u8],
     width: u32,

@@ -123,9 +123,9 @@ impl ColorSpaceConfig {
             _ => Self::auto_select(width, height, true),
         };
         if range.eq_ignore_ascii_case("full") {
-            selected.range = ColorRange::Full
+            selected.range = ColorRange::Full;
         } else if range.eq_ignore_ascii_case("limited") {
-            selected.range = ColorRange::Limited
+            selected.range = ColorRange::Limited;
         }
         selected
     }

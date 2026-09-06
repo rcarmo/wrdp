@@ -92,25 +92,25 @@ impl ScreenCastInterface {
                     return None;
                 }
                 // Data variant: try to extract as array of strings
-                if let Value::Value(inner) = &fields[2] {
-                    if let Value::Array(arr) = inner.as_ref() {
-                        let names: Vec<String> = arr
-                            .iter()
-                            .filter_map(|v| {
-                                if let Value::Str(s) = v {
-                                    Some(s.to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        if !names.is_empty() {
-                            return Some(RestoreData {
-                                vendor: vendor.to_string(),
-                                version,
-                                output_names: names,
-                            });
-                        }
+                if let Value::Value(inner) = &fields[2]
+                    && let Value::Array(arr) = inner.as_ref()
+                {
+                    let names: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| {
+                            if let Value::Str(s) = v {
+                                Some(s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if !names.is_empty() {
+                        return Some(RestoreData {
+                            vendor: vendor.to_string(),
+                            version,
+                            output_names: names,
+                        });
                     }
                 }
             }
@@ -145,10 +145,10 @@ impl ScreenCastInterface {
                     "source_type".to_string(),
                     OwnedValue::from(s.source_type.to_bits()),
                 );
-                if let Some(ref mapping_id) = s.mapping_id {
-                    if let Ok(val) = OwnedValue::try_from(Value::from(mapping_id.as_str())) {
-                        props.insert("mapping_id".to_string(), val);
-                    }
+                if let Some(ref mapping_id) = s.mapping_id
+                    && let Ok(val) = OwnedValue::try_from(Value::from(mapping_id.as_str()))
+                {
+                    props.insert("mapping_id".to_string(), val);
                 }
                 (s.node_id, props)
             })
@@ -164,10 +164,6 @@ impl ScreenCastInterface {
     }
 }
 
-#[allow(
-    clippy::used_underscore_binding,
-    reason = "zbus macro expands to use underscore-prefixed D-Bus parameters"
-)]
 #[interface(name = "org.freedesktop.impl.portal.ScreenCast")]
 impl ScreenCastInterface {
     /// Create a new `ScreenCast` session.

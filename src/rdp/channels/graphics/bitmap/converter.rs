@@ -182,8 +182,7 @@ impl BufferPool {
                 .enumerate()
                 .filter_map(|(idx, buffer)| buffer.as_ref().map(|buffer| (idx, buffer.last_used)))
                 .min_by_key(|(_, last_used)| *last_used)
-                .map(|(idx, _)| idx)
-                .unwrap_or(0)
+                .map_or(0, |(idx, _)| idx)
         });
 
         self.buffers[idx] = Some(PooledBuffer {

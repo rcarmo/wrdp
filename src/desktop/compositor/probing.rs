@@ -98,7 +98,7 @@ pub fn detect_os_release() -> Option<OsRelease> {
                 release.id_like = value
                     .split_whitespace()
                     .map(str::to_ascii_lowercase)
-                    .collect()
+                    .collect();
             }
             _ => {}
         }

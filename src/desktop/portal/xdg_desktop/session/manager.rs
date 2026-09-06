@@ -60,6 +60,10 @@ impl SessionManager {
     }
 
     /// Generate a new unique session handle.
+    #[expect(
+        clippy::expect_used,
+        reason = "internal invariant established during construction or by guarded control flow"
+    )]
     pub fn generate_session_handle() -> ObjectPath<'static> {
         let id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
         let uuid = uuid::Uuid::new_v4();
@@ -106,8 +110,7 @@ impl SessionManager {
         *self.app_session_count.entry(app_id).or_insert(0) += 1;
 
         // Insert and return
-        self.sessions.insert(handle_str.clone(), session);
-        Ok(self.sessions.get_mut(&handle_str).expect("just inserted"))
+        Ok(self.sessions.entry(handle_str).or_insert(session))
     }
 
     /// Get a session by handle.

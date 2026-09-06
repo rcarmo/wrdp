@@ -451,10 +451,9 @@ impl SessionManager {
                 debug!("SIGTERM {} pid {}", component.name, component.pid);
                 if let Err(error) =
                     signal_process(component.pid, component.process_group, Signal::SIGTERM)
+                    && target_alive(index, component)
                 {
-                    if target_alive(index, component) {
-                        return Err(error);
-                    }
+                    return Err(error);
                 }
             }
         }
@@ -469,10 +468,9 @@ impl SessionManager {
                 warn!("SIGKILL {} pid {}", component.name, component.pid);
                 if let Err(error) =
                     signal_process(component.pid, component.process_group, Signal::SIGKILL)
+                    && target_alive(index, component)
                 {
-                    if target_alive(index, component) {
-                        return Err(error);
-                    }
+                    return Err(error);
                 }
             }
         }
@@ -599,13 +597,12 @@ impl SessionManager {
     }
 
     fn is_production_runtime(&self, target_uid: u32) -> bool {
-        self.config.xdg_runtime_dir == PathBuf::from(format!("/run/user/{target_uid}/wrdp"))
+        self.config.xdg_runtime_dir == format!("/run/user/{target_uid}/wrdp")
     }
 
     fn is_production_registry(&self) -> bool {
-        uid_for_user(&self.config.user).is_ok_and(|uid| {
-            self.config.state_dir == PathBuf::from(format!("/run/wrdp/sesman/{uid}"))
-        })
+        uid_for_user(&self.config.user)
+            .is_ok_and(|uid| self.config.state_dir == format!("/run/wrdp/sesman/{uid}"))
     }
 
     fn spawn_component(&self, component: &ComponentConfig) -> Result<ComponentState> {

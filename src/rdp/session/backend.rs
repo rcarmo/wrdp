@@ -3,6 +3,7 @@
 //! Defines the common traits used by runtime backends that provide capture,
 //! input injection, health reporting, and clipboard wiring.
 
+#[cfg(feature = "portal-generic")]
 use std::sync::Arc;
 
 use anyhow::Result;

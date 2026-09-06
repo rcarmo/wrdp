@@ -153,10 +153,6 @@ impl ClipboardInterface {
     }
 }
 
-#[allow(
-    clippy::used_underscore_binding,
-    reason = "zbus macro expands to use underscore-prefixed D-Bus parameters"
-)]
 #[interface(name = "org.freedesktop.impl.portal.Clipboard")]
 impl ClipboardInterface {
     /// Request clipboard access for a session.
@@ -361,24 +357,23 @@ impl ClipboardInterface {
         };
 
         // If write was successful and we have data, update the clipboard backend
-        if success {
-            if let (Some(entry), Some(backend)) = (&entry, &self.clipboard_backend) {
-                if let Some(ref data) = entry.data {
-                    let mut backend = backend.lock().await;
-                    // Update the backend's source data for this MIME type
-                    let clipboard = backend
-                        .get_clipboard()
-                        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-                    let mut new_data: HashMap<String, Vec<u8>> = HashMap::new();
-                    new_data.insert(entry.mime_type.clone(), data.clone());
-                    backend
-                        .set_clipboard(ClipboardData {
-                            mime_types: clipboard.mime_types,
-                            data: new_data,
-                        })
-                        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-                }
-            }
+        if success
+            && let (Some(entry), Some(backend)) = (&entry, &self.clipboard_backend)
+            && let Some(ref data) = entry.data
+        {
+            let mut backend = backend.lock().await;
+            // Update the backend's source data for this MIME type
+            let clipboard = backend
+                .get_clipboard()
+                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+            let mut new_data: HashMap<String, Vec<u8>> = HashMap::new();
+            new_data.insert(entry.mime_type.clone(), data.clone());
+            backend
+                .set_clipboard(ClipboardData {
+                    mime_types: clipboard.mime_types,
+                    data: new_data,
+                })
+                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         }
 
         // Notify the clipboard backend

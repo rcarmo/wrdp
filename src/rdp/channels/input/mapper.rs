@@ -171,7 +171,7 @@ pub(crate) mod keycodes {
     pub(crate) const KEY_PRINT: u32 = 210;
 }
 
-#[allow(clippy::wildcard_imports)]
+#[expect(clippy::wildcard_imports)]
 use keycodes::*;
 
 /// Scancode mapper for RDP-to-evdev keycode translation.
@@ -540,10 +540,10 @@ impl ScancodeMapper {
                 .ok_or(InputError::UnknownScancode(extended_scan))
         } else {
             // Check for layout-specific overrides first
-            if let Some(overrides) = self.layout_overrides.get(&self.current_layout) {
-                if let Some(keycode) = overrides.get(&(scancode as u16)) {
-                    return Ok(*keycode);
-                }
+            if let Some(overrides) = self.layout_overrides.get(&self.current_layout)
+                && let Some(keycode) = overrides.get(&(scancode as u16))
+            {
+                return Ok(*keycode);
             }
             // Standard scancode translation
             self.primary_map

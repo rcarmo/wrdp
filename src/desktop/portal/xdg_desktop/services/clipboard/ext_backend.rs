@@ -208,7 +208,7 @@ fn read_pipe_data(read_fd: OwnedFd) -> Result<Option<Vec<u8>>> {
             )));
         }
         let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
-        let poll_result = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        let poll_result = unsafe { libc::poll(&raw mut pollfd, 1, timeout_ms) };
 
         if poll_result == 0 {
             return Err(PortalError::Io(std::io::Error::new(
