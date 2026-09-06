@@ -191,7 +191,7 @@ fn read_pipe_data(read_fd: OwnedFd) -> Result<Option<Vec<u8>>> {
 
     let mut data = Vec::new();
     const MAX_SIZE: usize = 100 * 1024 * 1024; // 100MB limit
-    const READ_TIMEOUT_MS: i32 = 5_000; // 5 second timeout per read
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
 
     loop {
         // Wait for data with timeout using poll()
@@ -200,12 +200,21 @@ fn read_pipe_data(read_fd: OwnedFd) -> Result<Option<Vec<u8>>> {
             events: libc::POLLIN,
             revents: 0,
         };
-        let poll_result = unsafe { libc::poll(&mut pollfd, 1, READ_TIMEOUT_MS) };
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(PortalError::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "clipboard pipe deadline exceeded",
+            )));
+        }
+        let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+        let poll_result = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
 
         if poll_result == 0 {
-            // Timeout — return what we have so far
-            tracing::warn!("Clipboard pipe read timed out after {}ms", READ_TIMEOUT_MS);
-            break;
+            return Err(PortalError::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "clipboard pipe did not reach EOF before its deadline",
+            )));
         } else if poll_result < 0 {
             let err = std::io::Error::last_os_error();
             if err.kind() == std::io::ErrorKind::Interrupted {
@@ -244,6 +253,29 @@ mod tests {
         let (tx, _rx) = mpsc::channel();
         let shared = Arc::new(Mutex::new(SharedClipboardState::default()));
         ExtClipboardBackend::new(tx, shared)
+    }
+
+    #[test]
+    fn pipe_eof_preserves_complete_data() {
+        use std::io::Write;
+        let (read, write) = create_pipe().unwrap();
+        let mut writer = std::fs::File::from(write);
+        writer.write_all(b"clipboard").unwrap();
+        drop(writer);
+        assert_eq!(read_pipe_data(read).unwrap(), Some(b"clipboard".to_vec()));
+    }
+
+    #[test]
+    fn pipe_timeout_rejects_partial_data() {
+        use std::io::Write;
+        let (read, write) = create_pipe().unwrap();
+        let mut writer = std::fs::File::from(write);
+        writer.write_all(b"partial").unwrap();
+        let error = read_pipe_data(read).unwrap_err();
+        assert!(
+            matches!(error, PortalError::Io(ref e) if e.kind() == std::io::ErrorKind::TimedOut)
+        );
+        drop(writer);
     }
 
     #[test]
