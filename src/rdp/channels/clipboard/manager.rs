@@ -871,7 +871,7 @@ impl ClipboardOrchestrator {
                 data,
                 is_error,
             } => {
-                Self::handle_rdp_file_contents_response(
+                let result = Self::handle_rdp_file_contents_response(
                     stream_id,
                     data,
                     is_error,
@@ -879,7 +879,29 @@ impl ClipboardOrchestrator {
                     clipboard_provider,
                     server_event_sender,
                 )
-                .await
+                .await;
+                if result.is_err() {
+                    // Failed size/range validation or I/O must not leave a
+                    // pending portal request and partial files alive indefinitely.
+                    let serial = {
+                        let mut state = file_transfer_state.write().await;
+                        let serial = state.portal_serial;
+                        state.clear_incoming();
+                        serial
+                    };
+                    let provider = clipboard_provider.read().await.clone();
+                    if let (Some(serial), Some(provider)) = (serial, provider) {
+                        let _ = provider
+                            .complete_transfer(
+                                serial,
+                                "x-special/gnome-copied-files",
+                                Vec::new(),
+                                false,
+                            )
+                            .await;
+                    }
+                }
+                result
             }
 
             ClipboardEvent::PortalFormatsAvailable(mime_types, force) => {
