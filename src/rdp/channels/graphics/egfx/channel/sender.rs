@@ -495,15 +495,39 @@ mod tests {
         })));
         let (tx, mut rx) = mpsc::unbounded_channel();
         let sender = EgfxChannelSender::new(Arc::clone(&server), state, tx);
+        #[cfg(feature = "h264-source")]
+        let mut encoder = crate::rdp::channels::graphics::egfx::h264::encoder::Avc420Encoder::new(
+            crate::rdp::channels::graphics::egfx::h264::encoder::EncoderConfig {
+                enable_skip_frame: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        #[cfg(feature = "h264-source")]
+        let first_payload = encoder
+            .encode_bgra(&vec![0; 16 * 16 * 4], 16, 16, 1)
+            .unwrap()
+            .unwrap()
+            .data;
+        #[cfg(not(feature = "h264-source"))]
+        let first_payload = vec![1];
         let first = sender
-            .send_frame_with_regions(&[1], 16, 16, 16, 16, &[], 1)
+            .send_frame_with_regions(&first_payload, 16, 16, 16, 16, &[], 1)
             .await
             .unwrap();
         assert!(rx.try_recv().is_ok());
         assert!(sender.is_backpressured().unwrap());
+        #[cfg(feature = "h264-source")]
+        let rejected_payload = encoder
+            .encode_bgra(&vec![255; 16 * 16 * 4], 16, 16, 2)
+            .unwrap()
+            .unwrap()
+            .data;
+        #[cfg(not(feature = "h264-source"))]
+        let rejected_payload = vec![2];
         assert!(
             sender
-                .send_frame_with_regions(&[2], 16, 16, 16, 16, &[], 2)
+                .send_frame_with_regions(&rejected_payload, 16, 16, 16, 16, &[], 2)
                 .await
                 .is_err()
         );
@@ -519,8 +543,26 @@ mod tests {
             .process(7, &ironrdp_core::encode_vec(&ack).unwrap())
             .unwrap();
         assert!(!sender.is_backpressured().unwrap());
+        #[cfg(feature = "h264-source")]
+        let recovery_payload = {
+            // The rejected frame advanced encoder references. Recovery must be
+            // independently decodable while retaining the same encoder instance.
+            encoder.force_keyframe();
+            let data = encoder
+                .encode_bgra(&vec![255; 16 * 16 * 4], 16, 16, 3)
+                .unwrap()
+                .unwrap()
+                .data;
+            assert!(openh264::nal_units(&data).any(|nal| {
+                let prefix = if nal.starts_with(&[0, 0, 0, 1]) { 4 } else { 3 };
+                nal.get(prefix).is_some_and(|byte| byte & 0x1f == 5)
+            }));
+            data
+        };
+        #[cfg(not(feature = "h264-source"))]
+        let recovery_payload = vec![3];
         let next = sender
-            .send_frame_with_regions(&[3], 16, 16, 16, 16, &[], 3)
+            .send_frame_with_regions(&recovery_payload, 16, 16, 16, 16, &[], 3)
             .await
             .unwrap();
         assert_ne!(first, next);
