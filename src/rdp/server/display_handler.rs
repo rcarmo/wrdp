@@ -475,6 +475,23 @@ fn wlr_randr_reports_current_mode(output: &[u8], width: u16, height: u16) -> boo
     })
 }
 
+/// Damage detection advances history before the governor can defer a frame.
+/// Preserve recovery on deferral and bypass the governor until submission succeeds.
+fn recovery_encoding_decision(
+    recovery_pending: &mut bool,
+    has_damage: bool,
+    governor: impl FnOnce() -> EncodingDecision,
+) -> EncodingDecision {
+    if *recovery_pending {
+        return EncodingDecision::EncodeNow;
+    }
+    let decision = governor();
+    if !decision.should_encode() && has_damage {
+        *recovery_pending = true;
+    }
+    decision
+}
+
 /// Video encoder abstraction for codec-agnostic frame encoding
 ///
 /// Supports both AVC420 (standard H.264 4:2:0) and AVC444 (premium H.264 4:4:4).
@@ -2597,19 +2614,17 @@ impl DisplayChannelHandler {
                             adaptive_fps.update(damage_ratio);
                         }
 
-                        let encoding_decision = if force_first_frame {
-                            EncodingDecision::EncodeNow
-                        } else {
-                            latency_governor.should_encode_frame(damage_ratio)
-                        };
+                        let encoding_decision = recovery_encoding_decision(
+                            &mut force_first_frame,
+                            !damage_regions.is_empty(),
+                            || latency_governor.should_encode_frame(damage_ratio),
+                        );
                         match encoding_decision {
                             EncodingDecision::Skip => {
-                                force_first_frame |= !damage_regions.is_empty();
                                 frames_dropped += 1;
                                 continue;
                             }
                             EncodingDecision::WaitForMore => {
-                                force_first_frame |= !damage_regions.is_empty();
                                 continue;
                             }
                             EncodingDecision::EncodeNow
@@ -3276,6 +3291,56 @@ impl RdpServerDisplayUpdates for DisplayUpdatesStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deferred_damage_forces_next_encode_without_consulting_governor() {
+        for deferred in [EncodingDecision::Skip, EncodingDecision::WaitForMore] {
+            let mut recovery = false;
+            assert_eq!(
+                recovery_encoding_decision(&mut recovery, true, || deferred),
+                deferred
+            );
+            assert!(recovery);
+            assert_eq!(
+                recovery_encoding_decision(&mut recovery, false, || panic!(
+                    "governor must be bypassed"
+                )),
+                EncodingDecision::EncodeNow
+            );
+            assert!(
+                recovery,
+                "decision must not clear recovery before submission"
+            );
+        }
+    }
+
+    #[test]
+    fn idle_deferral_does_not_force_recovery() {
+        let mut recovery = false;
+        assert_eq!(
+            recovery_encoding_decision(&mut recovery, false, || EncodingDecision::Skip),
+            EncodingDecision::Skip
+        );
+        assert!(!recovery);
+    }
+
+    #[test]
+    fn ordinary_encode_preserves_governor_decision() {
+        for decision in [
+            EncodingDecision::EncodeNow,
+            EncodingDecision::EncodeBatch,
+            EncodingDecision::EncodeTimeout,
+            EncodingDecision::EncodeKeepalive,
+        ] {
+            let mut recovery = false;
+            assert_eq!(
+                recovery_encoding_decision(&mut recovery, true, || decision),
+                decision
+            );
+            assert!(!recovery);
+        }
+    }
+
     use crate::rdp::channels::graphics::bitmap::converter::{BitmapData, Rectangle};
 
     #[tokio::test]
