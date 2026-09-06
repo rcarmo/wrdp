@@ -3315,6 +3315,33 @@ mod tests {
     }
 
     #[test]
+    fn consumed_detector_damage_survives_governor_deferral() {
+        let mut detector = DamageDetector::with_defaults();
+        let black = vec![0; 64 * 64 * 4];
+        let white = vec![255; 64 * 64 * 4];
+        assert!(!detector.detect(&black, 64, 64).is_empty());
+        let damage = detector.detect(&white, 64, 64);
+        assert!(!damage.is_empty());
+        let mut recovery = false;
+        assert_eq!(
+            recovery_encoding_decision(&mut recovery, !damage.is_empty(), || {
+                EncodingDecision::WaitForMore
+            }),
+            EncodingDecision::WaitForMore,
+        );
+        // Detection has consumed the change, but the client never received it.
+        let unchanged = detector.detect(&white, 64, 64);
+        assert!(unchanged.is_empty());
+        assert_eq!(
+            recovery_encoding_decision(&mut recovery, !unchanged.is_empty(), || {
+                EncodingDecision::Skip
+            }),
+            EncodingDecision::EncodeNow,
+        );
+        assert!(recovery);
+    }
+
+    #[test]
     fn idle_deferral_does_not_force_recovery() {
         let mut recovery = false;
         assert_eq!(
