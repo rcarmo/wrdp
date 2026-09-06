@@ -549,7 +549,7 @@ impl ClipboardOrchestrator {
             task_handles: Arc::clone(&task_handles),
         };
 
-        manager.start_event_processor(event_rx);
+        manager.start_event_processor(event_rx).await;
 
         debug!("Clipboard manager initialized");
 
@@ -662,7 +662,7 @@ impl ClipboardOrchestrator {
     }
 
     /// Start event processing loop
-    fn start_event_processor(&mut self, mut event_rx: mpsc::Receiver<ClipboardEvent>) {
+    async fn start_event_processor(&mut self, mut event_rx: mpsc::Receiver<ClipboardEvent>) {
         let converter = self.converter.clone();
         let sync_manager = self.sync_manager.clone();
         let transfer_engine = self.transfer_engine.clone();
@@ -678,7 +678,7 @@ impl ClipboardOrchestrator {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         self.shutdown_tx = Some(shutdown_tx);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut consecutive_errors: u32 = 0;
 
             loop {
@@ -734,6 +734,7 @@ impl ClipboardOrchestrator {
                 }
             }
         });
+        self.task_handles.lock().await.push(handle);
     }
 
     /// Handle a clipboard event
