@@ -459,6 +459,74 @@ fn damage_regions_to_avc420(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn rejected_frame_can_be_retried_after_ack_on_same_channel() {
+        use ironrdp_dvc::DvcProcessor;
+        use ironrdp_egfx::pdu::{
+            CapabilitiesAdvertisePdu, CapabilitiesV81Flags, CapabilitySet, GfxPdu,
+        };
+        use ironrdp_egfx::server::{GraphicsPipelineHandler, GraphicsPipelineServer};
+        use std::sync::Mutex;
+        struct Handler;
+        impl GraphicsPipelineHandler for Handler {
+            fn capabilities_advertise(&mut self, _: &CapabilitiesAdvertisePdu) {}
+            fn on_ready(&mut self, _: &CapabilitySet) {}
+        }
+        let mut server = GraphicsPipelineServer::new(Box::new(Handler));
+        server.start(7).unwrap();
+        let caps = GfxPdu::CapabilitiesAdvertise(CapabilitiesAdvertisePdu::from_typed(&[
+            CapabilitySet::V8_1 {
+                flags: CapabilitiesV81Flags::AVC420_ENABLED,
+            },
+        ]));
+        server
+            .process(7, &ironrdp_core::encode_vec(&caps).unwrap())
+            .unwrap();
+        let surface = server.create_surface(16, 16).unwrap();
+        server.drain_output();
+        server.set_max_frames_in_flight(3);
+        server.clamp_max_frames_in_flight(std::num::NonZeroU32::new(1).unwrap());
+        let server = Arc::new(Mutex::new(server));
+        let state = Arc::new(tokio::sync::RwLock::new(Some(HandlerState {
+            is_ready: true,
+            is_avc420_enabled: true,
+            primary_surface_id: Some(surface),
+            ..HandlerState::default()
+        })));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sender = EgfxChannelSender::new(Arc::clone(&server), state, tx);
+        let first = sender
+            .send_frame_with_regions(&[1], 16, 16, 16, 16, &[], 1)
+            .await
+            .unwrap();
+        assert!(rx.try_recv().is_ok());
+        assert!(sender.is_backpressured().unwrap());
+        assert!(
+            sender
+                .send_frame_with_regions(&[2], 16, 16, 16, 16, &[], 2)
+                .await
+                .is_err()
+        );
+        assert!(rx.try_recv().is_err());
+        let ack = GfxPdu::FrameAcknowledge(ironrdp_egfx::pdu::FrameAcknowledgePdu {
+            frame_id: first,
+            queue_depth: ironrdp_egfx::pdu::QueueDepth::Unavailable,
+            total_frames_decoded: 1,
+        });
+        server
+            .lock()
+            .unwrap()
+            .process(7, &ironrdp_core::encode_vec(&ack).unwrap())
+            .unwrap();
+        assert!(!sender.is_backpressured().unwrap());
+        let next = sender
+            .send_frame_with_regions(&[3], 16, 16, 16, 16, &[], 3)
+            .await
+            .unwrap();
+        assert_ne!(first, next);
+        assert!(rx.try_recv().is_ok());
+    }
+
     #[test]
     fn preflight_tracks_acknowledgement_window() {
         use ironrdp_core::encode_vec;
