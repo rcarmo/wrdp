@@ -12,6 +12,7 @@ use std::{
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use crate::rdp::channels::clipboard::core::{
@@ -2519,20 +2520,8 @@ impl ClipboardOrchestrator {
             let timeout = tokio::time::Duration::from_secs(5);
             let mut handles = self.task_handles.lock().await;
 
-            for (i, mut handle) in handles.drain(..).enumerate() {
-                match tokio::time::timeout(timeout, &mut handle).await {
-                    Ok(Ok(())) => {
-                        debug!("Task {} finished cleanly", i + 1);
-                    }
-                    Ok(Err(e)) => {
-                        warn!("Task {} panicked: {:?}", i + 1, e);
-                    }
-                    Err(_) => {
-                        warn!("Task {} timed out, aborting", i + 1);
-                        handle.abort();
-                        let _ = handle.await;
-                    }
-                }
+            for handle in handles.drain(..) {
+                finish_clipboard_task(handle, timeout).await;
             }
         }
 
@@ -2544,9 +2533,48 @@ impl ClipboardOrchestrator {
     }
 }
 
+async fn finish_clipboard_task(mut handle: tokio::task::JoinHandle<()>, grace: Duration) {
+    match tokio::time::timeout(grace, &mut handle).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => warn!("Clipboard task stopped with error: {error}"),
+        Err(_) => {
+            warn!("Clipboard task exceeded shutdown grace; aborting");
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_timeout_cancels_task_and_releases_resources() {
+        struct NotifyDrop(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for NotifyDrop {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (released, mut done) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let _resource = NotifyDrop(Some(released));
+            let _ = started.send(());
+            std::future::pending::<()>().await;
+        });
+        ready.await.unwrap();
+        finish_clipboard_task(handle, Duration::ZERO).await;
+        assert_eq!(done.try_recv(), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn completed_clipboard_task_shuts_down_cleanly() {
+        finish_clipboard_task(tokio::spawn(async {}), Duration::from_secs(1)).await;
+    }
 
     #[test]
     fn incoming_destinations_do_not_overwrite_or_collide() {
