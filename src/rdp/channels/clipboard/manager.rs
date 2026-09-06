@@ -2181,7 +2181,15 @@ impl ClipboardOrchestrator {
             ClipboardError::FileIoError(format!("Failed to seek to offset {offset}: {e}"))
         })?;
 
-        let mut buffer = vec![0u8; size as usize];
+        // Peer-supplied range lengths must not drive multi-gigabyte allocations.
+        // Short responses are valid; clients request the remaining range later.
+        let remaining = file
+            .metadata()
+            .map_err(|e| ClipboardError::FileIoError(format!("Failed to stat file: {e}")))?
+            .len()
+            .saturating_sub(offset);
+        let bounded_size = u64::from(size).min(64 * 1024 * 1024).min(remaining);
+        let mut buffer = vec![0u8; bounded_size as usize];
         let bytes_read = file
             .read(&mut buffer)
             .map_err(|e| ClipboardError::FileIoError(format!("Failed to read file: {e}")))?;
@@ -2569,6 +2577,22 @@ mod tests {
         assert_eq!(file.apply_size_response(&0u64.to_le_bytes()).unwrap(), 0);
         assert_eq!(file.total_size, Some(0));
         assert!(!file.awaiting_size);
+    }
+
+    #[test]
+    fn outgoing_chunk_is_bounded_by_remaining_file_size() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("small.txt");
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            ClipboardOrchestrator::read_file_chunk(&path, 1, u32::MAX).unwrap(),
+            b"bc"
+        );
+        assert!(
+            ClipboardOrchestrator::read_file_chunk(&path, 100, u32::MAX)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
