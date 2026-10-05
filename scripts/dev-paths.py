@@ -30,6 +30,7 @@ def configured_paths() -> tuple[Path, dict[str, Path]]:
         "CARGO_TARGET_DIR", "COMPOSITOR_BUILD_DIR", "GROUND_INIT_BUILD_ROOT",
         "XDG_CACHE_HOME", "PYTHONPYCACHEPREFIX", "PIP_CACHE_DIR", "CCACHE_DIR",
         "SCCACHE_DIR", "BUN_INSTALL_CACHE_DIR", "npm_config_cache", "ASYNC_DIR",
+        "TEST_ROOT", "LOG_ROOT",
     )}
     resolved_root = root.resolve()
     checked_components = set()
@@ -39,10 +40,14 @@ def configured_paths() -> tuple[Path, dict[str, Path]]:
             category = "runs"
         elif name in ("CARGO_TARGET_DIR", "COMPOSITOR_BUILD_DIR", "GROUND_INIT_BUILD_ROOT"):
             category = "build"
+        if name in ("TEST_ROOT", "LOG_ROOT"):
+            category = "tests" if name == "TEST_ROOT" else "logs"
+            if path != root / category:
+                raise ValueError(f"{name} must be {root / category}")
         parent = root / category
         if category == "build":
             parent /= build_id
-        if not path.is_absolute() or ".." in path.parts or not path.is_relative_to(parent) or path == parent:
+        if not path.is_absolute() or ".." in path.parts or not path.is_relative_to(parent) or (path == parent and name not in ("TEST_ROOT", "LOG_ROOT")):
             raise ValueError(f"{name} must be below {parent}")
         if category == "runs" and len(path.relative_to(root / "runs").parts) < 2:
             raise ValueError(f"{name} needs a purpose and run id")
@@ -89,7 +94,7 @@ def main() -> None:
     action = sys.argv[1]
     root, paths = configured_paths()
     if action == "show":
-        print(json.dumps({"root": str(root), **{k: str(v) for k, v in paths.items()}}, indent=2))
+        print(json.dumps({"root": str(root), "PROJECT_ORIGINAL_TMPDIR": os.environ.get("PROJECT_ORIGINAL_TMPDIR", ""), **{k: str(v) for k, v in paths.items()}}, indent=2))
     elif action == "prepare":
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)

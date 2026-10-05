@@ -10,9 +10,14 @@ run_dir="$root/runs/ci/$run_id"
 mkdir -p "$run_dir/tmp" "$root/cache/cargo" "$root/cache/python/pycache" "$root/cache/xdg" "$root/build/wrdp"
 {
     printf '%s\n' "PROJECT_TMP_ROOT=$root" "WRDP_TMP_ROOT=$root" \
+        "PROJECT_ORIGINAL_TMPDIR=$PROJECT_ORIGINAL_TMPDIR" \
+        "TEST_ROOT=$root/tests" "LOG_ROOT=$root/logs" \
         "WRDP_RUN_DIR=$run_dir" "WRDP_TMPDIR=$run_dir/tmp" \
         "TMPDIR=$run_dir/tmp" "TMP=$run_dir/tmp" "TEMP=$run_dir/tmp" \
         "CARGO_HOME=$root/cache/cargo" "CARGO_TARGET_DIR=$root/build/wrdp/cargo-target" \
         "COMPOSITOR_BUILD_DIR=$root/build/wrdp/compositor" \
         "PYTHONPYCACHEPREFIX=$root/cache/python/pycache" "XDG_CACHE_HOME=$root/cache/xdg"
+    if [[ -n "${PROJECT_TMP_BASE+x}" ]]; then
+        printf '%s\n' "PROJECT_TMP_BASE=$PROJECT_TMP_BASE"
+    fi
 } >> "${GITHUB_ENV:?Actions environment file required}"

@@ -12,15 +12,29 @@ SHELL := /usr/bin/env bash
 
 RUST_VERSION ?= 1.94.0
 FEATURES ?= default,vaapi
-# Resolve before exporting child TMPDIR. The vendored resolver works without
-# /workspace: explicit PROJECT_TMP_ROOT, workspace, runner, inherited temp, /tmp.
+# Snapshot before redirecting TMPDIR; inherited snapshots survive recursive Make.
+ifeq ($(origin PROJECT_ORIGINAL_TMPDIR),undefined)
+PROJECT_ORIGINAL_TMPDIR := $(TMPDIR)
+endif
+# The repository-owned resolver validates explicit base/root overrides, selects
+# CI runner/original/system temp or local workspace/system temp, then appends wrdp.
 shell-quote = '$(subst ','"'"',$(1))'
-WRDP_RESOLVED_TMP_ROOT := $(shell $(if $(filter undefined,$(origin PROJECT_TMP_ROOT)),,PROJECT_TMP_ROOT=$(call shell-quote,$(PROJECT_TMP_ROOT))) bash -c 'source scripts/project-tmp.sh; project_tmp_resolve wrdp')
+WRDP_RESOLVER_VARS := PROJECT_TMP_BASE PROJECT_TMP_ROOT PROJECT_ORIGINAL_TMPDIR RUNNER_TEMP CI GITHUB_ACTIONS GITLAB_CI TF_BUILD CIRCLECI
+WRDP_RESOLVER_ENV := $(foreach name,$(WRDP_RESOLVER_VARS),$(if $(filter undefined,$(origin $(name))),,$(name)=$(call shell-quote,$($(name)))))
+WRDP_RESOLVED_TMP_ROOT := $(shell $(WRDP_RESOLVER_ENV) bash -c 'source scripts/project-tmp.sh; project_tmp_resolve wrdp')
 ifeq ($(strip $(WRDP_RESOLVED_TMP_ROOT)),)
-$(error Cannot resolve WRDP scratch root; fix PROJECT_TMP_ROOT or directory permissions)
+$(error Cannot resolve WRDP scratch root; fix PROJECT_TMP_BASE/PROJECT_TMP_ROOT or directory permissions)
 endif
 override PROJECT_TMP_ROOT := $(WRDP_RESOLVED_TMP_ROOT)
 override WRDP_TMP_ROOT := $(PROJECT_TMP_ROOT)
+# Export a supplied base, but do not invent an empty override for child tools.
+ifneq ($(origin PROJECT_TMP_BASE),undefined)
+export PROJECT_TMP_BASE
+endif
+export PROJECT_ORIGINAL_TMPDIR
+TEST_ROOT := $(PROJECT_TMP_ROOT)/tests
+LOG_ROOT := $(PROJECT_TMP_ROOT)/logs
+export TEST_ROOT LOG_ROOT
 WRDP_BUILD_ID ?= $(notdir $(CURDIR))
 WRDP_RUN_ID := $(or $(WRDP_RUN_ID),$(shell date -u +%Y%m%dT%H%M%S)-$(shell echo $$$$))
 export WRDP_RUN_ID

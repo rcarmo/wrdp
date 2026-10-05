@@ -30,16 +30,22 @@ If `.agents.local.md` exists, read it before making changes. It contains machine
 
 ## Development Paths
 
-- Canonical project name: `wrdp`. `scripts/project-tmp.sh` resolves scratch once,
-  before Make changes child `TMPDIR`: a validated absolute `PROJECT_TMP_ROOT`
-  ending in `wrdp`, else writable `/workspace/tmp/wrdp`, `$RUNNER_TEMP/wrdp`,
-  the original `$TMPDIR/wrdp`, then the platform temp root `/tmp/wrdp` on supported
-  Linux hosts. Invalid explicit overrides fail; no home-cache or ad-hoc fallback.
-  The resolver rejects unsafe symlink/ownership paths and preserves `/workspace`
-  as the operator-provided mount alias. No dependency on a host shared Makefile.
-- Make exports actual tool settings, including resolved `PROJECT_TMP_ROOT` for
-  recursive invocations. Direct commands must use the same environment.
-  `make paths` prints it; `make prepare-paths` creates it without building.
+- Canonical project name: `wrdp`. `scripts/project-tmp.sh` resolves scratch before
+  Make or CI redirects child temp variables. An absolute `PROJECT_TMP_BASE`
+  selects `<base>/wrdp`; compatible `PROJECT_TMP_ROOT` selects an absolute path
+  ending in `wrdp`. If both are supplied they must agree. Empty, invalid or
+  unusable overrides fail rather than falling back.
+- Without overrides, CI selects usable `$RUNNER_TEMP`, then the original inherited
+  `$TMPDIR`, then platform temp (`/tmp` on supported Linux hosts), even when
+  `/workspace/tmp` exists. Local invocations prefer usable `/workspace/tmp`, then
+  platform temp; they ignore runner and inherited temp hints. Always append
+  `wrdp`. The resolver rejects unsafe symlink/ownership paths, retaining
+  `/workspace` as the operator-provided mount alias. No host helper is required.
+- `PROJECT_ORIGINAL_TMPDIR` snapshots incoming `TMPDIR` before redirection. Make
+  and CI export the snapshot and resolved `PROJECT_TMP_ROOT`; recursive children
+  reuse that root without appending another project name. Direct commands must
+  use the same environment. `make paths` prints it; `make prepare-paths` creates
+  it without building. Generic layout: `cache`, `build`, `tests`, `logs`, `runs`.
 - Downloads and caches use `cache/<tool>/`: Cargo `CARGO_HOME`/`CARGO_HOME_DIR`,
   Python `PYTHONPYCACHEPREFIX` and `PIP_CACHE_DIR`, `XDG_CACHE_HOME`, `CCACHE_DIR`,
   `SCCACHE_DIR`, `BUN_INSTALL_CACHE_DIR`, and `npm_config_cache`.
@@ -48,9 +54,11 @@ If `.agents.local.md` exists, read it before making changes. It contains machine
 - Scratch uses `runs/make/<timestamp-pid>/tmp`. `TMPDIR`, `TMP` and `TEMP` agree;
   recursive Make and subprocesses inherit `WRDP_RUN_ID`. Tests retain isolated,
   owned temporary directories below that run root, never real session state.
-- Hosted CI explicitly sets `PROJECT_TMP_ROOT=$RUNNER_TEMP/wrdp` and calls the
+- Hosted CI explicitly sets `PROJECT_TMP_BASE=$RUNNER_TEMP` and calls the
   repository-owned `scripts/ci-paths.sh`, preserving the hierarchy and exporting
-  actual tool variables via `GITHUB_ENV`. Overrides use the same validation.
+  the snapshot, resolved root and tool variables via `GITHUB_ENV`. Overrides use
+  the same validation. `TEST_ROOT=.../tests` and `LOG_ROOT=.../logs` are disposable
+  scratch only; retained logs/profiles use the separate evidence path below.
 - Installed `RUSTUP_HOME_DIR` and `RUSTUP_BIN` are durable toolchains, separate
   from the disposable Cargo registry/git cache. Do not relocate or delete them.
 - Retained profiles, logs and receipts belong in `.local/evidence/` or their

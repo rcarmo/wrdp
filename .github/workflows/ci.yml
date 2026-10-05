@@ -36,7 +36,7 @@ jobs:
         shell: bash
         env:
           # Step scope makes the runner context available on hosted Actions.
-          PROJECT_TMP_ROOT: ${{ runner.temp }}/wrdp
+          PROJECT_TMP_BASE: ${{ runner.temp }}
         run: bash scripts/ci-paths.sh
 
       - name: Install native build dependencies
@@ -95,7 +95,7 @@ jobs:
       - name: Prepare project paths
         shell: bash
         env:
-          PROJECT_TMP_ROOT: ${{ runner.temp }}/wrdp
+          PROJECT_TMP_BASE: ${{ runner.temp }}
         run: bash scripts/ci-paths.sh
 
       - name: Install compositor build dependencies
