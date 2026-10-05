@@ -12,12 +12,27 @@ SHELL := /usr/bin/env bash
 
 RUST_VERSION ?= 1.94.0
 FEATURES ?= default,vaapi
-WRDP_TMPDIR ?= $(CURDIR)/.local/tmp
-CARGO_TARGET_DIR ?= $(WRDP_TMPDIR)/wrdp-target
-COMPOSITOR_BUILD_DIR ?= $(WRDP_TMPDIR)/wrdp-compositor-build
-ASYNC_DIR ?= $(WRDP_TMPDIR)/async
+# Resolve before exporting child TMPDIR. The vendored resolver works without
+# /workspace: explicit PROJECT_TMP_ROOT, workspace, runner, inherited temp, /tmp.
+shell-quote = '$(subst ','"'"',$(1))'
+WRDP_RESOLVED_TMP_ROOT := $(shell $(if $(filter undefined,$(origin PROJECT_TMP_ROOT)),,PROJECT_TMP_ROOT=$(call shell-quote,$(PROJECT_TMP_ROOT))) bash -c 'source scripts/project-tmp.sh; project_tmp_resolve wrdp')
+ifeq ($(strip $(WRDP_RESOLVED_TMP_ROOT)),)
+$(error Cannot resolve WRDP scratch root; fix PROJECT_TMP_ROOT or directory permissions)
+endif
+override PROJECT_TMP_ROOT := $(WRDP_RESOLVED_TMP_ROOT)
+override WRDP_TMP_ROOT := $(PROJECT_TMP_ROOT)
+WRDP_BUILD_ID ?= $(notdir $(CURDIR))
+WRDP_RUN_ID := $(or $(WRDP_RUN_ID),$(shell date -u +%Y%m%dT%H%M%S)-$(shell echo $$$$))
+export WRDP_RUN_ID
+WRDP_RUN_DIR ?= $(WRDP_TMP_ROOT)/runs/make/$(WRDP_RUN_ID)
+WRDP_TMPDIR ?= $(WRDP_RUN_DIR)/tmp
+CARGO_TARGET_DIR ?= $(WRDP_TMP_ROOT)/build/$(WRDP_BUILD_ID)/cargo-target
+COMPOSITOR_BUILD_DIR ?= $(WRDP_TMP_ROOT)/build/$(WRDP_BUILD_ID)/compositor
+GROUND_INIT_BUILD_ROOT ?= $(WRDP_TMP_ROOT)/build/$(WRDP_BUILD_ID)/ground-init
+WRDP_EVIDENCE_DIR ?= $(CURDIR)/.local/evidence
+ASYNC_DIR ?= $(WRDP_TMP_ROOT)/runs/async/$(WRDP_BUILD_ID)
 ASYNC_TARGET ?= check
-ASYNC_LOG ?= $(ASYNC_DIR)/$(ASYNC_TARGET).log
+ASYNC_LOG ?= $(WRDP_EVIDENCE_DIR)/async/$(ASYNC_TARGET)-$(WRDP_RUN_ID).log
 ASYNC_PID ?= $(ASYNC_DIR)/$(ASYNC_TARGET).pid
 ASYNC_STATUS ?= $(ASYNC_DIR)/$(ASYNC_TARGET).status
 WRDP_COMPOSITOR_PREFIX ?= /usr
@@ -25,9 +40,11 @@ WRDP_COMPOSITOR_BUILDTYPE ?= release
 WRDP_COMPOSITOR_DEFAULT_LIBRARY ?= static
 
 RUSTUP_HOME_DIR ?= $(or $(firstword $(wildcard $(HOME)/.rustup)),$(HOME)/.rustup)
-CARGO_HOME_DIR ?= $(or $(firstword $(wildcard $(HOME)/.cargo)),$(HOME)/.cargo)
-RUSTUP_BIN ?= $(CARGO_HOME_DIR)/bin/rustup
-RUSTUP_ENV := RUSTUP_HOME=$(RUSTUP_HOME_DIR) CARGO_HOME=$(CARGO_HOME_DIR)
+CARGO_HOME_DIR ?= $(WRDP_TMP_ROOT)/cache/cargo
+# rustup is an installed toolchain, not a disposable Cargo download cache.
+RUSTUP_BIN ?= $(or $(shell command -v rustup 2>/dev/null),$(HOME)/.cargo/bin/rustup)
+RUSTUP_INSTALL_CARGO_HOME ?= $(patsubst %/bin/,%,$(dir $(RUSTUP_BIN)))
+RUSTUP_ENV := RUSTUP_HOME='$(RUSTUP_HOME_DIR)' CARGO_HOME='$(CARGO_HOME_DIR)'
 CARGO ?= $(RUSTUP_ENV) $(RUSTUP_BIN) run $(RUST_VERSION) cargo
 MESON ?= meson
 DOCKER ?= docker
@@ -38,8 +55,37 @@ WRDP_SOURCE_DIR := $(abspath .)
 PROVISION_USER ?=
 export WRDP_SOURCE_DIR PROVISION_USER
 
-CARGO_ENV := TMPDIR=$(WRDP_TMPDIR) CARGO_TARGET_DIR=$(CARGO_TARGET_DIR)
+TMPDIR := $(WRDP_TMPDIR)
+TMP := $(TMPDIR)
+TEMP := $(TMPDIR)
+CARGO_HOME := $(CARGO_HOME_DIR)
+XDG_CACHE_HOME := $(WRDP_TMP_ROOT)/cache/xdg
+PYTHONPYCACHEPREFIX := $(WRDP_TMP_ROOT)/cache/python/pycache
+PIP_CACHE_DIR := $(WRDP_TMP_ROOT)/cache/python/pip
+CCACHE_DIR := $(WRDP_TMP_ROOT)/cache/ccache
+SCCACHE_DIR := $(WRDP_TMP_ROOT)/cache/sccache
+BUN_INSTALL_CACHE_DIR := $(WRDP_TMP_ROOT)/cache/bun
+npm_config_cache := $(WRDP_TMP_ROOT)/cache/npm
+export PROJECT_TMP_ROOT WRDP_TMP_ROOT WRDP_BUILD_ID WRDP_RUN_ID WRDP_RUN_DIR WRDP_TMPDIR
+export TMPDIR TMP TEMP CARGO_HOME CARGO_TARGET_DIR COMPOSITOR_BUILD_DIR
+export XDG_CACHE_HOME PYTHONPYCACHEPREFIX PIP_CACHE_DIR CCACHE_DIR SCCACHE_DIR
+export BUN_INSTALL_CACHE_DIR npm_config_cache GROUND_INIT_BUILD_ROOT WRDP_EVIDENCE_DIR ASYNC_DIR
+CARGO_ENV := TMPDIR='$(WRDP_TMPDIR)' CARGO_HOME='$(CARGO_HOME_DIR)' CARGO_TARGET_DIR='$(CARGO_TARGET_DIR)'
 CARGO_COMMON := --features $(FEATURES)
+
+.PHONY: prepare-paths paths
+prepare-paths:
+	@$(PYTHON) -B scripts/dev-paths.py prepare
+
+paths: ## Print resolved development paths without building or creating directories.
+	@$(PYTHON) -B scripts/dev-paths.py show
+
+# Order-only prerequisite also covers recursive Make invocations and subprocesses.
+deps rustup-install rustup toolchain-check metadata fetch fmt fmt-fix check clippy test test-paths build build-release compositor-configure compositor-build provision-system provision-user validate-production async-start: | prepare-paths
+
+.PHONY: test-paths
+test-paths: ## Run focused path/provisioning tests with retained Python CPU/heap profiles.
+	$(PYTHON) scripts/profile-path-tests.py
 
 # Host packages needed for local Rust builds, compositor builds,
 # and day-to-day repository work on Debian.
@@ -94,16 +140,16 @@ bootstrap: deps rustup ## Install host dependencies and Rust toolchain.
 
 .PHONY: deps
 deps: ## Install Debian packages needed for development and packaging.
-	$(SUDO) $(APT_GET) update
-	$(SUDO) $(APT_GET) install -y $(APT_PACKAGES)
+	$(SUDO) env TMPDIR='$(TMPDIR)' TMP='$(TMP)' TEMP='$(TEMP)' $(APT_GET) -o Dir::Cache='$(WRDP_TMP_ROOT)/cache/apt' update
+	$(SUDO) env TMPDIR='$(TMPDIR)' TMP='$(TMP)' TEMP='$(TEMP)' $(APT_GET) -o Dir::Cache='$(WRDP_TMP_ROOT)/cache/apt' install -y $(APT_PACKAGES)
 
 .PHONY: rustup-install
 rustup-install: ## Install rustup if it is not already available.
 	@if [ -x '$(RUSTUP_BIN)' ]; then \
 		echo "rustup already installed: $$($(RUSTUP_ENV) $(RUSTUP_BIN) --version)"; \
 	else \
-		RUSTUP_HOME='$(RUSTUP_HOME_DIR)' CARGO_HOME='$(CARGO_HOME_DIR)' curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_HOME='$(RUSTUP_HOME_DIR)' CARGO_HOME='$(CARGO_HOME_DIR)' sh -s -- -y --profile minimal --default-toolchain none; \
-		echo 'Restart the shell or source $$HOME/.cargo/env before using rustup from PATH.'; \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_HOME='$(RUSTUP_HOME_DIR)' CARGO_HOME='$(RUSTUP_INSTALL_CARGO_HOME)' sh -s -- -y --profile minimal --default-toolchain none; \
+		echo 'Installed toolchain proxies under $(RUSTUP_INSTALL_CARGO_HOME)/bin; Cargo downloads stay project-scoped.'; \
 	fi
 
 .PHONY: rustup
@@ -167,7 +213,7 @@ smoke-systemd: ## Smoke-test the installed systemd socket/service state without 
 
 .PHONY: compositor-configure
 compositor-configure: ## Configure the vendored wrdp compositor build.
-	$(MESON) setup $(COMPOSITOR_BUILD_DIR) vendor/wrdp-compositor \
+	$(MESON) setup '$(COMPOSITOR_BUILD_DIR)' vendor/wrdp-compositor \
 		--prefix=$(WRDP_COMPOSITOR_PREFIX) \
 		--buildtype=$(WRDP_COMPOSITOR_BUILDTYPE) \
 		--default-library=$(WRDP_COMPOSITOR_DEFAULT_LIBRARY)
@@ -177,11 +223,11 @@ compositor-build: ## Build the vendored wrdp compositor.
 	@if [ ! -f '$(COMPOSITOR_BUILD_DIR)/build.ninja' ]; then \
 		$(MAKE) compositor-configure; \
 	fi
-	$(MESON) compile -C $(COMPOSITOR_BUILD_DIR)
+	$(MESON) compile -C '$(COMPOSITOR_BUILD_DIR)'
 
 .PHONY: compositor-clean
-compositor-clean: ## Remove the vendored compositor build directory.
-	rm -rf $(COMPOSITOR_BUILD_DIR)
+compositor-clean: ## Remove only this checkout's compositor build; refuse active async jobs.
+	@$(PYTHON) -B scripts/dev-paths.py clean-compositor
 
 .PHONY: install-session-defaults
 install-session-defaults: ## Install the minimal managed desktop configuration and Platinum theme.
@@ -204,7 +250,7 @@ install-session-defaults: ## Install the minimal managed desktop configuration a
 .PHONY: provision-system
 provision-system: ## Provision packages and system-owned desktop files (run as root).
 	@test "$$(id -u)" -eq 0 || { echo "provision-system must run as root" >&2; exit 1; }
-	@$(PYTHON) -c 'import yaml' >/dev/null 2>&1 || { apt-get update && apt-get install -y python3-yaml; }
+	@$(PYTHON) -c 'import yaml' >/dev/null 2>&1 || { apt-get -o Dir::Cache='$(WRDP_TMP_ROOT)/cache/apt' update && apt-get -o Dir::Cache='$(WRDP_TMP_ROOT)/cache/apt' install -y python3-yaml; }
 	$(PYTHON) vendor/ground-init/ground-init.py ground-init.system.yaml
 
 .PHONY: provision-user
@@ -229,14 +275,15 @@ ci: metadata fmt check test build compositor-build ## Run CI-style checks.
 
 .PHONY: async-start
 async-start: ## Start ASYNC_TARGET in the background; writes log/pid/status under ASYNC_DIR.
-	@mkdir -p '$(ASYNC_DIR)' '$(WRDP_TMPDIR)'
-	@if [ -f '$(ASYNC_PID)' ] && kill -0 "$$(cat '$(ASYNC_PID)')" 2>/dev/null; then \
-		echo "$(ASYNC_TARGET) already running: pid $$(cat '$(ASYNC_PID)')"; \
-		exit 0; \
-	fi
-	@printf 'running\n' > '$(ASYNC_STATUS)'
-	@nohup bash -lc 'cd "$(CURDIR)" && export HOME="$(HOME)" PATH="$(CARGO_HOME_DIR)/bin:$$PATH" WRDP_TMPDIR="$(WRDP_TMPDIR)" CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" FEATURES="$(FEATURES)" RUST_VERSION="$(RUST_VERSION)"; echo "[$$(date -Is)] START make $(ASYNC_TARGET)"; ionice -c2 -n7 nice -n 15 $(MAKE) --no-print-directory $(ASYNC_TARGET); rc=$$?; echo "[$$(date -Is)] END make $(ASYNC_TARGET) status=$$rc"; echo $$rc > "$(ASYNC_STATUS)"; exit $$rc' > '$(ASYNC_LOG)' 2>&1 & echo $$! > '$(ASYNC_PID)'
-	@echo "started $(ASYNC_TARGET): pid $$(cat '$(ASYNC_PID)') log=$(ASYNC_LOG) status=$(ASYNC_STATUS)"
+	@case '$(firstword $(MAKEFLAGS))' in --*) ;; *n*) echo 'dry run: would start $(ASYNC_TARGET)'; exit 0;; esac; \
+	mkdir -p '$(ASYNC_DIR)' "$(dir $(ASYNC_LOG))"; \
+	if [ -f '$(ASYNC_PID)' ] && kill -0 "$$(cat '$(ASYNC_PID)')" 2>/dev/null; then \
+		echo "$(ASYNC_TARGET) already running: pid $$(cat '$(ASYNC_PID)')"; exit 0; \
+	fi; \
+	printf '%s\n' '$(ASYNC_LOG)' > '$(ASYNC_DIR)/$(ASYNC_TARGET).log-path'; \
+	printf 'running\n' > '$(ASYNC_STATUS)'; \
+	nohup bash -c 'cd "$(CURDIR)" && export HOME="$(HOME)" WRDP_TMPDIR="$(WRDP_TMPDIR)" CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" FEATURES="$(FEATURES)" RUST_VERSION="$(RUST_VERSION)"; echo "[$$(date -Is)] START make $(ASYNC_TARGET)"; ionice -c2 -n7 nice -n 15 $(MAKE) --no-print-directory $(ASYNC_TARGET); rc=$$?; echo "[$$(date -Is)] END make $(ASYNC_TARGET) status=$$rc"; echo $$rc > "$(ASYNC_STATUS)"; exit $$rc' > '$(ASYNC_LOG)' 2>&1 & echo $$! > '$(ASYNC_PID)'; \
+	echo "started $(ASYNC_TARGET): pid $$(cat '$(ASYNC_PID)') log=$(ASYNC_LOG) status=$(ASYNC_STATUS)"
 
 .PHONY: async-check async-test async-build async-ci async-h264-check
 async-check: ## Start `make check` asynchronously.
@@ -252,17 +299,16 @@ async-h264-check: ## Start a viable H.264-only check asynchronously.
 
 .PHONY: async-status
 async-status: ## Show async job status and the tail of its log.
-	@mkdir -p '$(ASYNC_DIR)'
 	@if [ -f '$(ASYNC_PID)' ] && kill -0 "$$(cat '$(ASYNC_PID)')" 2>/dev/null; then \
 		echo "$(ASYNC_TARGET): running pid=$$(cat '$(ASYNC_PID)')"; \
 	else \
 		echo "$(ASYNC_TARGET): not running status=$$(cat '$(ASYNC_STATUS)' 2>/dev/null || echo unknown)"; \
 	fi
-	@if [ -f '$(ASYNC_LOG)' ]; then tail -n 80 '$(ASYNC_LOG)'; else echo "no log: $(ASYNC_LOG)"; fi
+	@log=$$(cat '$(ASYNC_DIR)/$(ASYNC_TARGET).log-path' 2>/dev/null || true); if [ -f "$$log" ]; then tail -n 80 "$$log"; else echo 'no saved log'; fi
 
 .PHONY: async-log
 async-log: ## Tail the async job log for ASYNC_TARGET.
-	@tail -n 160 '$(ASYNC_LOG)' 2>/dev/null || echo "no log: $(ASYNC_LOG)"
+	@log=$$(cat '$(ASYNC_DIR)/$(ASYNC_TARGET).log-path' 2>/dev/null || true); tail -n 160 "$$log" 2>/dev/null || echo 'no saved log'
 
 .PHONY: async-stop
 async-stop: ## Stop the async job for ASYNC_TARGET if it is still running.
@@ -273,14 +319,12 @@ async-stop: ## Stop the async job for ASYNC_TARGET if it is still running.
 	fi
 
 .PHONY: clean
-clean: compositor-clean ## Remove local build artifacts.
-	$(CARGO_ENV) $(CARGO) clean
-	rm -rf $(CARGO_TARGET_DIR)
+clean: ## Remove only this checkout's build output; preserve caches, toolchains and evidence.
+	@$(PYTHON) -B scripts/dev-paths.py clean-build
 
 .PHONY: async-clean
-async-clean: async-stop ## Remove async logs/status and temp build artifacts.
-	rm -rf $(ASYNC_DIR) $(CARGO_TARGET_DIR) $(COMPOSITOR_BUILD_DIR)
+async-clean: ## Remove inactive async scratch and build output; preserve retained logs.
+	@$(PYTHON) -B scripts/dev-paths.py clean-async
 
 .PHONY: distclean
-distclean: clean async-clean ## Remove generated build artifacts.
-	rm -rf out target
+distclean: clean async-clean ## Clean owned build/scratch only; never delete source, caches or evidence.

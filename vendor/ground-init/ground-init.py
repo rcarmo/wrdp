@@ -298,7 +298,9 @@ def on_build(context: list) -> None:
     Args:
         context (list): List of repositories to clone locally and commands to execute inside them.
     """
-    path = context.get("root", expandvars("${HOME}/tmp/build"))
+    path = context.get("root") or environ.get("GROUND_INIT_BUILD_ROOT")
+    if not path:
+        raise ValueError("build requires an explicit root or GROUND_INIT_BUILD_ROOT")
     if not exists(path):
         log.warning(f"--> Creating {path}")
         makedirs(path)

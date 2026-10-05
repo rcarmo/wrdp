@@ -14,6 +14,18 @@ SPEC.loader.exec_module(MODULE)
 
 
 class GroundInitLocalHandlersTests(unittest.TestCase):
+    def test_build_requires_explicit_root(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "explicit root"):
+                MODULE.on_build({})
+
+    def test_build_uses_configured_project_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            with patch.dict(os.environ, {"GROUND_INIT_BUILD_ROOT": str(build)}):
+                MODULE.on_build({"repositories": []})
+            self.assertTrue(build.is_dir())
+
     def test_environment_expansion(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = Path(temporary) / "profile.yaml"

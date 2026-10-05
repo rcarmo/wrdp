@@ -15,9 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.89.0
-  WRDP_TMPDIR: ${{ github.workspace }}/.local/tmp
-  CARGO_TARGET_DIR: ${{ github.workspace }}/.local/tmp/wrdp-target
+  RUST_VERSION: 1.94.0
+  WRDP_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}
+  WRDP_BUILD_ID: wrdp
   PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
 
 jobs:
@@ -31,6 +31,13 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+
+      - name: Prepare project paths
+        shell: bash
+        env:
+          # Step scope makes the runner context available on hosted Actions.
+          PROJECT_TMP_ROOT: ${{ runner.temp }}/wrdp
+        run: bash scripts/ci-paths.sh
 
       - name: Install native build dependencies
         run: |
@@ -51,8 +58,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ env.CARGO_HOME }}/registry
+            ${{ env.CARGO_HOME }}/git
             ${{ env.CARGO_TARGET_DIR }}
           key: cargo-${{ runner.os }}-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
@@ -85,6 +92,12 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      - name: Prepare project paths
+        shell: bash
+        env:
+          PROJECT_TMP_ROOT: ${{ runner.temp }}/wrdp
+        run: bash scripts/ci-paths.sh
+
       - name: Install compositor build dependencies
         run: |
           apt-get update
@@ -96,6 +109,6 @@ jobs:
 
       - name: Build bundled compositor
         run: |
-          meson setup .local/compositor-build vendor/wrdp-compositor \
+          meson setup "$COMPOSITOR_BUILD_DIR" vendor/wrdp-compositor \
             --prefix=/usr --buildtype=release --default-library=static
-          meson compile -C .local/compositor-build
+          meson compile -C "$COMPOSITOR_BUILD_DIR"
