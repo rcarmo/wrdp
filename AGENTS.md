@@ -1,3 +1,17 @@
+<!-- RUI-PROFILE-LIFECYCLE-20261005 -->
+## Current profiling and cleanup rule — supersedes older text below
+
+Rui's explicit rule: **profile and tune during pre-release tests; remove profiling data immediately after analysis/use.** Ordinary development tests do not require profiling on every run. Targeted diagnostic profiling is optional when useful and follows the same disposal rule.
+
+- During pre-release verification, capture CPU and heap/allocation behaviour, analyse hotspots and tune avoidable allocations/repeated work. Compare equivalent workloads without weakening correctness/security/numerical contracts. For Go, inspect CPU, alloc_space and alloc_objects; coverage alone is not profiling.
+- Keep captures and matching artifacts only while the current analysis needs them. Once used, immediately delete raw profiles, traces, matching test binaries, temporary fixtures and disposable logs, including failed/probe artifacts after diagnosis. Retain only concise conclusions and important measurements/limitations. Do not keep indefinite raw archives or copy them into exports/reports/evidence to evade cleanup.
+- Remove all completed disposable cache/build/test/run data promptly. Never delete files still in use: finish or safely pause the owning job and clean at a safe boundary. Preserve source, installed toolchains, durable datasets/checkpoints and intentional release assets. Minimise disk usage; no random exports or redundant snapshots.
+- This rule overrides **every conflicting older paragraph in this file and linked local guidance**, including “profile every test”, “unprofiled tests prohibited”, “retain all raw evidence”, “never delete profiles” and cleanup exclusions based only on an evidence/profiles directory name. Update helper/CI cleanup behaviour accordingly; do not weaken pre-release analysis.
+- Existing no-agent-contact and execution-pause rules remain unchanged. This policy grants no unsolicited coordination or automatic job restart.
+<!-- /RUI-PROFILE-LIFECYCLE-20261005 -->
+
+
+
 # Repository Guidance for Agents
 
 ## Local Overrides
@@ -58,17 +72,12 @@ If `.agents.local.md` exists, read it before making changes. It contains machine
   repository-owned `scripts/ci-paths.sh`, preserving the hierarchy and exporting
   the snapshot, resolved root and tool variables via `GITHUB_ENV`. Overrides use
   the same validation. `TEST_ROOT=.../tests` and `LOG_ROOT=.../logs` are disposable
-  scratch only; retained logs/profiles use the separate evidence path below.
+  scratch; raw logs/profiles in any path are deleted after analysis.
 - Installed `RUSTUP_HOME_DIR` and `RUSTUP_BIN` are durable toolchains, separate
   from the disposable Cargo registry/git cache. Do not relocate or delete them.
-- Retained profiles, logs and receipts belong in `.local/evidence/` or their
-  publication destination. Async PID/status/log-pointer files use
-  `runs/async/<checkout>`; the logs themselves stay in `.local/evidence/async`.
-- Cleanup validates paths and rejects symlinks, foreign ownership and active
-  async PIDs. It never stops jobs or removes caches, evidence, other projects,
-  installed toolchains or legacy paths. Stop all direct and async jobs first:
-  the PID guard cannot detect arbitrary externally launched processes. Preserve
-  required evidence before manually removing any old disposable directories.
+- Keep only concise conclusions and intentional release receipts in .local/evidence; raw profiles and disposable logs must be deleted after analysis. Async job status/locks remain intact while active.
+
+- Cleanup validates ownership/symlinks and checks direct/async active jobs. Delete completed disposable cache/build/run/profile/log data immediately after use; keep concise conclusions only. Never stop jobs merely to clean, remove active files, installed toolchains, source, durable assets or another project. PID guards alone cannot detect arbitrary externally launched processes.
 - Installed `/run/user/<uid>/wrdp`, user home/config/Downloads and wallpaper
   caches are product runtime state, not development output. Keep their existing
   ownership and atomic-update rules. User provisioning gives child processes a
