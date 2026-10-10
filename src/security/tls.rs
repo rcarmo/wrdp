@@ -1,11 +1,11 @@
 //! TLS certificate loading for the production listener.
 
 use anyhow::{Context, Result};
-use ironrdp_server::tokio_rustls::rustls::{
+use std::{fs::File, io::BufReader, path::Path, sync::Arc};
+use tokio_rustls::rustls::{
     self, ServerConfig,
     pki_types::{CertificateDer, PrivateKeyDer},
 };
-use std::{fs::File, io::BufReader, path::Path, sync::Arc};
 
 #[derive(Clone)]
 pub struct TlsConfig {

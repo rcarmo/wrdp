@@ -3091,7 +3091,7 @@ impl RdpServerDisplay for DisplayChannelHandler {
         clippy::expect_used,
         reason = "mutex poisoning is unrecoverable; receiver guaranteed after reset"
     )]
-    async fn updates(&mut self) -> Result<Box<dyn RdpServerDisplayUpdates>> {
+    async fn updates(&mut self) -> ironrdp_server::ServerResult<Box<dyn RdpServerDisplayUpdates>> {
         let mut receiver_option = self.update_receiver.lock().await;
 
         // A resize reactivation consumed the prior receiver; create its next
@@ -3268,7 +3268,7 @@ impl DisplayUpdatesStream {
 #[async_trait::async_trait]
 impl RdpServerDisplayUpdates for DisplayUpdatesStream {
     /// Cancellation-safe as required by IronRDP.
-    async fn next_update(&mut self) -> Result<Option<DisplayUpdate>> {
+    async fn next_update(&mut self) -> ironrdp_server::ServerResult<Option<DisplayUpdate>> {
         match self.receiver.recv().await {
             Some(update) => {
                 trace!("Providing display update");

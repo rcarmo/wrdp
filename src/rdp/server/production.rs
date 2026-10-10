@@ -297,7 +297,7 @@ pub async fn run(config: Config) -> Result<()> {
         config.security.require_tls_13,
     )
     .context("failed to load TLS certificates")?;
-    let tls_acceptor = ironrdp_server::tokio_rustls::TlsAcceptor::from(tls_config.server_config());
+    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.server_config());
 
     let listen_addr: SocketAddr = config
         .server
@@ -520,7 +520,7 @@ pub async fn run(config: Config) -> Result<()> {
         ))
         .await
         {
-            Ok(result) => result,
+            Ok(result) => result.map_err(anyhow::Error::from),
             Err(ConnectionCancellation::Timeout(ConnectionTimeoutPhase::PreAuth)) => Err(
                 anyhow::anyhow!("RDP pre-authentication timed out after 30 seconds"),
             ),
@@ -862,6 +862,24 @@ struct ProductionSesmanBinder {
 #[async_trait::async_trait]
 impl ConnectionBinder for ProductionSesmanBinder {
     async fn bind_connection(
+        &self,
+        credentials: &Credentials,
+        desktop_size: DesktopSize,
+    ) -> ironrdp_server::ServerResult<BoundConnection> {
+        self.bind_connection_inner(credentials, desktop_size)
+            .await
+            .map_err(|error| {
+                ironrdp_server::ServerError::new(
+                    "session binding",
+                    ironrdp_server::ServerErrorKind::Custom,
+                )
+                .with_source(std::io::Error::other(error))
+            })
+    }
+}
+
+impl ProductionSesmanBinder {
+    async fn bind_connection_inner(
         &self,
         credentials: &Credentials,
         desktop_size: DesktopSize,
@@ -1722,7 +1740,7 @@ impl RdpServerDisplay for ProductionPlaceholderDisplay {
         }
     }
 
-    async fn updates(&mut self) -> Result<Box<dyn RdpServerDisplayUpdates>> {
+    async fn updates(&mut self) -> ironrdp_server::ServerResult<Box<dyn RdpServerDisplayUpdates>> {
         Ok(Box::new(ProductionNoopUpdates))
     }
 }
@@ -1731,7 +1749,7 @@ struct ProductionNoopUpdates;
 
 #[async_trait]
 impl RdpServerDisplayUpdates for ProductionNoopUpdates {
-    async fn next_update(&mut self) -> Result<Option<DisplayUpdate>> {
+    async fn next_update(&mut self) -> ironrdp_server::ServerResult<Option<DisplayUpdate>> {
         std::future::pending::<()>().await;
         unreachable!()
     }

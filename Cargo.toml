@@ -40,6 +40,7 @@ path = "src/lib.rs"
 # -----------------------------------------------------------------------------
 # Async runtime
 # -----------------------------------------------------------------------------
+tokio-rustls = "0.26"
 tokio = { version = "1.52", features = ["full"] }
 futures = "0.3"
 async-trait = "0.1"
@@ -73,21 +74,18 @@ x509-cert = "0.2.5"
 
 # -----------------------------------------------------------------------------
 # RDP protocol (IronRDP)
-# Git deps required: ironrdp-egfx is not published to crates.io yet
-# (publish = false in upstream Cargo.toml).
-#
-# Consume the canonical stack branch from rcarmo/IronRDP while the required
-# server-side hooks are prepared as separate upstreamable changes.
-ironrdp-server = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba", features = ["egfx", "helper"] }
-ironrdp-pdu = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-displaycontrol = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-cliprdr = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-core = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-egfx = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-svc = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-dvc = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-graphics = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
-ironrdp-rdpsnd = { git = "https://github.com/rcarmo/IronRDP.git", rev = "7ad8703bc476c36de9bd739953fa3c4570c4edba" }
+# One canonical upstream revision includes merged connection-binding and ACK fixes.
+# Keep all IronRDP crates aligned to avoid cross-revision type mismatches.
+ironrdp-server = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f", features = ["egfx", "helper"] }
+ironrdp-pdu = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-displaycontrol = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-cliprdr = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-core = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-egfx = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-svc = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-dvc = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-graphics = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
+ironrdp-rdpsnd = { git = "https://github.com/Devolutions/IronRDP.git", rev = "e4143f26306a6639a889d80c1c484ca69c365a8f" }
 
 # -----------------------------------------------------------------------------
 

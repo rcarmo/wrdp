@@ -485,7 +485,7 @@ mod tests {
         let surface = server.create_surface(16, 16).unwrap();
         server.drain_output();
         server.set_max_frames_in_flight(3);
-        server.clamp_max_frames_in_flight(std::num::NonZeroU32::new(1).unwrap());
+        server.set_client_frame_ack_limit(std::num::NonZeroU32::new(1));
         let server = Arc::new(Mutex::new(server));
         let state = Arc::new(tokio::sync::RwLock::new(Some(HandlerState {
             is_ready: true,
@@ -588,7 +588,7 @@ mod tests {
         let mut server = GraphicsPipelineServer::new(Box::new(Handler));
         server.set_max_frames_in_flight(3);
         assert_eq!(
-            server.clamp_max_frames_in_flight(std::num::NonZeroU32::new(1).unwrap()),
+            server.set_client_frame_ack_limit(std::num::NonZeroU32::new(1)),
             1
         );
         let caps = GfxPdu::CapabilitiesAdvertise(CapabilitiesAdvertisePdu::from_typed(&[

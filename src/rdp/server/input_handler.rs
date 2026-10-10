@@ -76,7 +76,8 @@ use crate::rdp::channels::clipboard::provider::ClipboardProvider;
 use crate::rdp::channels::graphics::egfx::channel::HandlerState;
 use crate::rdp::{
     channels::input::{
-        CoordinateTransformer, InputError, KeyboardHandler, MonitorInfo, MouseButton, MouseHandler,
+        CoordinateTransformer, InputError, KeyboardHandler, MonitorInfo, MouseButton, MouseEvent,
+        MouseHandler,
     },
     session::{
         backend::StreamInfo,
@@ -297,11 +298,8 @@ fn input_event_is_droppable(event: &InputEvent) -> bool {
         InputEvent::Keyboard(IronKeyboardEvent::Synchronize(_)) => false,
         InputEvent::Keyboard(_) => true,
         InputEvent::Mouse(
-            IronMouseEvent::LeftReleased
-            | IronMouseEvent::RightReleased
-            | IronMouseEvent::MiddleReleased
-            | IronMouseEvent::Button4Released
-            | IronMouseEvent::Button5Released,
+            IronMouseEvent::Button { pressed: false, .. }
+            | IronMouseEvent::ButtonRel { pressed: false, .. },
         ) => false,
         InputEvent::Mouse(_) => true,
     }
@@ -1135,120 +1133,115 @@ impl InputChannelHandler {
                     .map_err(portal_err)?;
             }
 
-            IronMouseEvent::LeftPressed => {
-                if !mouse.accept_button_transition(MouseButton::Left, true) {
-                    trace!("Suppressing duplicate left-button press");
+            IronMouseEvent::Button {
+                x,
+                y,
+                button,
+                pressed,
+            } => {
+                let movement =
+                    mouse.handle_absolute_move(u32::from(x), u32::from(y), &mut transformer)?;
+                if let MouseEvent::Move {
+                    x: stream_x,
+                    y: stream_y,
+                    ..
+                } = movement
+                {
+                    session_handle
+                        .notify_pointer_motion_absolute(stream_id, stream_x, stream_y)
+                        .await
+                        .map_err(portal_err)?;
+                }
+                let button = match button {
+                    ironrdp_server::MouseButton::Left => MouseButton::Left,
+                    ironrdp_server::MouseButton::Right => MouseButton::Right,
+                    ironrdp_server::MouseButton::Middle => MouseButton::Middle,
+                    ironrdp_server::MouseButton::X1 => MouseButton::Extra1,
+                    ironrdp_server::MouseButton::X2 => MouseButton::Extra2,
+                    _ => return Ok(()),
+                };
+                if !mouse.accept_button_transition(button, pressed) {
                     return Ok(());
                 }
-                mouse.handle_button_down(MouseButton::Left)?;
+                if pressed {
+                    mouse.handle_button_down(button)?;
+                } else {
+                    mouse.handle_button_up(button)?;
+                }
                 session_handle
-                    .notify_pointer_button(272, true) // BTN_LEFT
+                    .notify_pointer_button(button.to_linux_button() as i32, pressed)
                     .await
                     .map_err(portal_err)?;
+                Self::send_android_pointer_position_update(
+                    pointer_update_tx,
+                    gfx_handler_state,
+                    x,
+                    y,
+                )
+                .await;
+                if pressed {
+                    Self::send_android_pointer_shape_once(
+                        pointer_update_tx,
+                        gfx_handler_state,
+                        pointer_shape_sent,
+                    )
+                    .await;
+                }
             }
-
-            IronMouseEvent::LeftReleased => {
-                if !mouse.accept_button_transition(MouseButton::Left, false) {
-                    trace!("Suppressing duplicate left-button release");
+            IronMouseEvent::ButtonRel {
+                x,
+                y,
+                button,
+                pressed,
+            } => {
+                let movement = mouse.handle_relative_move(x, y, &mut transformer)?;
+                if let MouseEvent::Move {
+                    x: stream_x,
+                    y: stream_y,
+                    ..
+                } = movement
+                {
+                    session_handle
+                        .notify_pointer_motion_absolute(stream_id, stream_x, stream_y)
+                        .await
+                        .map_err(portal_err)?;
+                    Self::send_android_pointer_position_update(
+                        pointer_update_tx,
+                        gfx_handler_state,
+                        stream_x.clamp(0.0, f64::from(u16::MAX)).round() as u16,
+                        stream_y.clamp(0.0, f64::from(u16::MAX)).round() as u16,
+                    )
+                    .await;
+                }
+                let button = match button {
+                    ironrdp_server::MouseButton::Left => MouseButton::Left,
+                    ironrdp_server::MouseButton::Right => MouseButton::Right,
+                    ironrdp_server::MouseButton::Middle => MouseButton::Middle,
+                    ironrdp_server::MouseButton::X1 => MouseButton::Extra1,
+                    ironrdp_server::MouseButton::X2 => MouseButton::Extra2,
+                    _ => return Ok(()),
+                };
+                if !mouse.accept_button_transition(button, pressed) {
                     return Ok(());
                 }
-                mouse.handle_button_up(MouseButton::Left)?;
-                session_handle
-                    .notify_pointer_button(272, false)
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::RightPressed => {
-                if !mouse.accept_button_transition(MouseButton::Right, true) {
-                    trace!("Suppressing duplicate right-button press");
-                    return Ok(());
+                if pressed {
+                    mouse.handle_button_down(button)?;
+                } else {
+                    mouse.handle_button_up(button)?;
                 }
-                mouse.handle_button_down(MouseButton::Right)?;
                 session_handle
-                    .notify_pointer_button(273, true) // BTN_RIGHT
+                    .notify_pointer_button(button.to_linux_button() as i32, pressed)
                     .await
                     .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::RightReleased => {
-                if !mouse.accept_button_transition(MouseButton::Right, false) {
-                    trace!("Suppressing duplicate right-button release");
-                    return Ok(());
+                if pressed {
+                    Self::send_android_pointer_shape_once(
+                        pointer_update_tx,
+                        gfx_handler_state,
+                        pointer_shape_sent,
+                    )
+                    .await;
                 }
-                mouse.handle_button_up(MouseButton::Right)?;
-                session_handle
-                    .notify_pointer_button(273, false)
-                    .await
-                    .map_err(portal_err)?;
             }
-
-            IronMouseEvent::MiddlePressed => {
-                if !mouse.accept_button_transition(MouseButton::Middle, true) {
-                    return Ok(());
-                }
-                mouse.handle_button_down(MouseButton::Middle)?;
-                session_handle
-                    .notify_pointer_button(274, true) // BTN_MIDDLE
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::MiddleReleased => {
-                if !mouse.accept_button_transition(MouseButton::Middle, false) {
-                    return Ok(());
-                }
-                mouse.handle_button_up(MouseButton::Middle)?;
-                session_handle
-                    .notify_pointer_button(274, false)
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::Button4Pressed => {
-                if !mouse.accept_button_transition(MouseButton::Extra1, true) {
-                    return Ok(());
-                }
-                mouse.handle_button_down(MouseButton::Extra1)?;
-                session_handle
-                    .notify_pointer_button(275, true) // BTN_SIDE
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::Button4Released => {
-                if !mouse.accept_button_transition(MouseButton::Extra1, false) {
-                    return Ok(());
-                }
-                mouse.handle_button_up(MouseButton::Extra1)?;
-                session_handle
-                    .notify_pointer_button(275, false)
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::Button5Pressed => {
-                if !mouse.accept_button_transition(MouseButton::Extra2, true) {
-                    return Ok(());
-                }
-                mouse.handle_button_down(MouseButton::Extra2)?;
-                session_handle
-                    .notify_pointer_button(276, true) // BTN_EXTRA
-                    .await
-                    .map_err(portal_err)?;
-            }
-
-            IronMouseEvent::Button5Released => {
-                if !mouse.accept_button_transition(MouseButton::Extra2, false) {
-                    return Ok(());
-                }
-                mouse.handle_button_up(MouseButton::Extra2)?;
-                session_handle
-                    .notify_pointer_button(276, false)
-                    .await
-                    .map_err(portal_err)?;
-            }
-
             IronMouseEvent::VerticalScroll { value } => {
                 let event = mouse.handle_scroll(0, value as i32)?;
                 if let crate::rdp::channels::input::MouseEvent::Scroll {
@@ -1284,6 +1277,7 @@ impl InputChannelHandler {
                         .map_err(portal_err)?;
                 }
             }
+            _ => {}
         }
 
         Ok(())
@@ -1305,11 +1299,8 @@ impl RdpServerInputHandler for InputChannelHandler {
         }
         if matches!(
             event,
-            IronMouseEvent::LeftPressed
-                | IronMouseEvent::RightPressed
-                | IronMouseEvent::MiddlePressed
-                | IronMouseEvent::Button4Pressed
-                | IronMouseEvent::Button5Pressed
+            IronMouseEvent::Button { pressed: true, .. }
+                | IronMouseEvent::ButtonRel { pressed: true, .. }
         ) && !self.first_mouse_button_event.swap(true, Ordering::Relaxed)
         {
             info!("First RDP pointer button event received");
@@ -1371,6 +1362,36 @@ mod tests {
     }
 
     #[test]
+    fn mouse_release_is_critical_at_any_position() {
+        for button in [
+            ironrdp_server::MouseButton::Left,
+            ironrdp_server::MouseButton::Right,
+            ironrdp_server::MouseButton::Middle,
+            ironrdp_server::MouseButton::X1,
+            ironrdp_server::MouseButton::X2,
+        ] {
+            assert_eq!(
+                queue_pressure_action(&InputEvent::Mouse(IronMouseEvent::Button {
+                    x: 731,
+                    y: 419,
+                    button,
+                    pressed: false
+                })),
+                QueuePressureAction::FailConnection
+            );
+            assert_eq!(
+                queue_pressure_action(&InputEvent::Mouse(IronMouseEvent::ButtonRel {
+                    x: -3,
+                    y: 7,
+                    button,
+                    pressed: false
+                })),
+                QueuePressureAction::FailConnection
+            );
+        }
+    }
+
+    #[test]
     fn queue_pressure_fails_for_release_and_synchronize_events() {
         use ironrdp_pdu::input::fast_path::SynchronizeFlags;
 
@@ -1388,7 +1409,12 @@ mod tests {
             QueuePressureAction::FailConnection
         );
         assert_eq!(
-            queue_pressure_action(&InputEvent::Mouse(IronMouseEvent::LeftReleased)),
+            queue_pressure_action(&InputEvent::Mouse(IronMouseEvent::Button {
+                x: 0,
+                y: 0,
+                button: ironrdp_server::MouseButton::Left,
+                pressed: false
+            })),
             QueuePressureAction::FailConnection
         );
         assert_eq!(
